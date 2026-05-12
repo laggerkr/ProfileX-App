@@ -1,0 +1,24 @@
+appId: com.company.profilex
+productName: Workspace Profile Manager
+directories:
+  output: release
+files:
+  - apps/frontend/dist/**/*
+  - apps/frontend/dist-electron/**/*
+  - apps/backend/dist/**/*
+  - browser-engine/dist/**/*
+  - shared/dist/**/*
+  - package.json
+asar: true
+mac:
+  target:
+    - dmg
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

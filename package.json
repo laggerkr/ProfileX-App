@@ -1,0 +1,33 @@
+{
+  "name": "profilex-workspace-manager",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Workspace Profile Manager for internal browser workspace isolation.",
+  "main": "apps/frontend/dist-electron/main.js",
+  "workspaces": [
+    "apps/*",
+    "shared",
+    "browser-engine"
+  ],
+  "scripts": {
+    "predev": "node scripts/check-dev-ports.mjs",
+    "dev": "concurrently -k -n API,WEB,ELECTRON -c cyan,magenta,green \"npm:dev -w @profilex/backend\" \"npm:dev -w @profilex/frontend\" \"wait-on http://127.0.0.1:4387/api/health http://127.0.0.1:5173 && npm.cmd run electron:dev -w @profilex/frontend\"",
+    "dev:python-worker": "python apps/python-worker/src/main.py",
+    "build": "npm run build -w @profilex/shared && npm run build -w @profilex/browser-engine && npm run build -w @profilex/backend && npm run build -w @profilex/frontend",
+    "lint": "eslint . --ext .ts,.tsx",
+    "typecheck": "tsc -b",
+    "package": "npm run build && electron-builder --config electron-builder.yml"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@typescript-eslint/eslint-plugin": "^7.8.0",
+    "@typescript-eslint/parser": "^7.8.0",
+    "concurrently": "^8.2.2",
+    "electron": "^30.0.6",
+    "electron-builder": "^24.13.3",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.5",
+    "wait-on": "^7.2.0"
+  }
+}
