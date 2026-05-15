@@ -461,7 +461,6 @@ function ProxyManager() {
   const [editingProxy, setEditingProxy] = useState<ProxySettings>();
   const [isProxyDialogOpen, setProxyDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportCandidate[]>([]);
-  const [typeFilter, setTypeFilter] = useState<"all" | ProxySettings["protocol"]>("all");
   const [selectedProxyIds, setSelectedProxyIds] = useState<string[]>([]);
   const [proxylineImporting, setProxylineImporting] = useState(false);
   const [proxylineImportStatus, setProxylineImportStatus] = useState<string>();
@@ -480,12 +479,7 @@ function ProxyManager() {
     setForm({ name: "", protocol: "http", host: "", port: "", username: "", password: "" });
     setProxyDialogOpen(false);
   };
-  const filteredProxies = useMemo(
-    () => typeFilter === "all"
-      ? proxies
-      : proxies.filter((proxy) => typeFilter === "http" ? proxy.httpPort : proxy.socks5Port),
-    [proxies, typeFilter]
-  );
+  const filteredProxies = proxies;
   const visibleProxyIds = useMemo(() => filteredProxies.map((proxy) => proxy.id), [filteredProxies]);
   const selectedVisibleCount = selectedProxyIds.filter((id) => visibleProxyIds.includes(id)).length;
   const toggleProxySelection = (id: string) =>
@@ -657,25 +651,6 @@ function ProxyManager() {
                 Delete selected ({selectedProxyIds.length})
               </Button>
             )}
-          </div>
-          <div className="flex shrink-0 rounded-lg border border-line bg-gray-50 p-1 dark:border-white/10 dark:bg-[#202328]">
-            {[
-              { value: "all", label: `All ${proxies.length}` },
-              { value: "http", label: `HTTP ${proxies.filter((proxy) => proxy.httpPort).length}` },
-              { value: "socks5", label: `SOCKS5 ${proxies.filter((proxy) => proxy.socks5Port).length}` }
-            ].map((item) => (
-              <button
-                key={item.value}
-                className={`h-8 rounded-md px-3 text-sm transition ${
-                  typeFilter === item.value
-                    ? "bg-white text-ink shadow-sm dark:bg-white dark:text-ink"
-                    : "text-gray-500 hover:text-ink dark:text-gray-400 dark:hover:text-white"
-                }`}
-                onClick={() => setTypeFilter(item.value as typeof typeFilter)}
-              >
-                {item.label}
-              </button>
-            ))}
           </div>
         </div>
         <table className="w-full table-fixed text-sm">

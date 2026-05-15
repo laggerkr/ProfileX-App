@@ -77,7 +77,7 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
     extraHTTPHeaders: {
       "Accept-Language": buildAcceptLanguage(fingerprint.language)
     },
-    args: buildChromiumArgs(profile, proxy, urls),
+    args: buildChromiumArgs(profile, proxy),
     permissions: []
   });
 
@@ -155,7 +155,7 @@ async function openStartupUrl(page: Page, url: string) {
   });
 }
 
-function buildChromiumArgs(profile: BrowserProfile, proxy?: ProxySettings, startupUrls: string[] = []) {
+function buildChromiumArgs(profile: BrowserProfile, proxy?: ProxySettings) {
   const fingerprint = profile.fingerprint;
   const disabledFeatures = new Set([
     "Translate",
@@ -203,6 +203,5 @@ function buildChromiumArgs(profile: BrowserProfile, proxy?: ProxySettings, start
     args.push(`--enable-features=${[...enabledFeatures].join(",")}`);
   }
 
-  args.push(...startupUrls);
   return args;
 }
