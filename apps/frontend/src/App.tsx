@@ -2007,6 +2007,26 @@ function Settings() {
 }
 
 
+type ThemeMode = "light" | "dark";
+
+const THEME_STORAGE_KEY = "profilex.theme";
+
+function getInitialTheme(): ThemeMode {
+  const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (saved === "light" || saved === "dark") return saved;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(theme: ThemeMode) {
+  document.documentElement.classList.toggle("dark", theme === "dark");
+}
+
+function useTheme() {
+  useEffect(() => {
+    applyTheme(getInitialTheme());
+  }, []);
+}
+
 type AppUnlockMethod = "pin" | "biometric";
 type AppLockSettings = {
   enabled: boolean;
