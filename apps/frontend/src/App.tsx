@@ -1,5 +1,5 @@
 import type { BrowserProfile, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
-import { Activity, Apple, Chrome, Copy, Database, FolderKanban, Globe2, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
+import { Activity, Apple, Chrome, Copy, Database, Fingerprint, FolderKanban, Globe2, KeyRound, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
 import { Shell } from "./components/Shell";
