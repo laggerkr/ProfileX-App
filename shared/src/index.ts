@@ -4,6 +4,12 @@ export type ProxyProtocol = "http" | "https" | "socks5";
 export type ProfileStatus = "ready" | "running" | "archived";
 export type WebRtcPolicy = "default" | "company-network-only" | "disabled";
 export type CanvasMode = "default" | "noise" | "fixed";
+export type BrowserEngine = "chromium" | "firefox";
+export type ProfileTabBehavior = "restore" | "custom";
+export type ProfileStorageMode = "cloud" | "device";
+export type FingerprintMode = "mask" | "custom" | "real";
+export type GeolocationAccess = "ask" | "allow" | "block";
+export type OperatingSystem = "macos" | "windows" | "linux" | "android";
 
 export interface ProxySettings {
   id: string;
@@ -27,11 +33,25 @@ export interface ProxySettings {
 export interface FingerprintSettings {
   userAgent: string;
   timezone: string;
+  timezoneMode?: FingerprintMode;
   language: string;
+  languageMode?: FingerprintMode;
   screen: { width: number; height: number };
+  screenMode?: FingerprintMode;
   webRtcPolicy: WebRtcPolicy;
+  geolocationAccess?: GeolocationAccess;
+  geolocationMode?: Exclude<FingerprintMode, "real">;
+  geolocation?: { latitude: number; longitude: number };
+  navigatorMode?: FingerprintMode;
+  platform?: string;
+  hardwareConcurrency?: number;
+  osCpu?: string;
   canvasMode: CanvasMode;
+  webGlMode?: FingerprintMode;
   webGlVendor: string;
+  webGlRenderer?: string;
+  webGpuVendorId?: string;
+  webGpuDeviceId?: string;
   fonts: string[];
   mediaDevices: { audioInputs: number; videoInputs: number; audioOutputs: number };
 }
@@ -45,6 +65,10 @@ export interface BrowserProfile {
   workspaceId: string;
   proxyId?: string;
   proxyProtocol?: ProxyProtocol;
+  tabBehavior?: ProfileTabBehavior;
+  operatingSystem?: OperatingSystem;
+  browserEngine?: BrowserEngine;
+  storageMode?: ProfileStorageMode;
   fingerprint: FingerprintSettings;
   startupUrls: string[];
   extensions: string[];

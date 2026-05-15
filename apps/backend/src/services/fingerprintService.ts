@@ -16,11 +16,21 @@ export function realisticFingerprintPreset(seed = Date.now()): FingerprintSettin
   return {
     userAgent: userAgents[index],
     timezone: ["Europe/Kyiv", "Europe/Warsaw", "America/New_York"][index],
+    timezoneMode: "mask",
     language: ["en-US", "uk-UA", "pl-PL"][index],
+    languageMode: "mask",
     screen: screens[index],
+    screenMode: "mask",
     webRtcPolicy: "company-network-only",
+    geolocationAccess: "ask",
+    geolocationMode: "mask",
+    navigatorMode: "mask",
+    platform: ["Win32", "MacIntel", "Linux x86_64"][index],
+    hardwareConcurrency: [8, 10, 8][index],
     canvasMode: "default",
-    webGlVendor: ["Google Inc.", "Apple Inc.", "Intel Inc."][index],
+    webGlMode: "mask",
+    webGlVendor: ["Google Inc. (Intel)", "Apple Inc.", "Intel Inc."][index],
+    webGlRenderer: ["ANGLE (Intel, Intel(R) UHD Graphics)", "Apple GPU", "Mesa Intel(R) Graphics"][index],
     fonts: ["Arial", "Inter", "Segoe UI", "Roboto"],
     mediaDevices: { audioInputs: 1, videoInputs: 1, audioOutputs: 1 }
   };

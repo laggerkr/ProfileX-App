@@ -227,11 +227,31 @@ function ProfileEditorDialog({
     notes: profile?.notes ?? "",
     proxyId: profile?.proxyId ?? "",
     proxyProtocol: profile?.proxyProtocol ?? "http",
+    tabBehavior: profile?.tabBehavior ?? "custom",
+    operatingSystem: profile?.operatingSystem ?? "windows",
+    browserEngine: profile?.browserEngine ?? "chromium",
+    storageMode: profile?.storageMode ?? "device",
     startupUrls: profile?.startupUrls.join("\n") ?? "https://example.com",
     userAgent: profile?.fingerprint.userAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    timezoneMode: profile?.fingerprint.timezoneMode ?? "mask",
     timezone: profile?.fingerprint.timezone ?? "Europe/Kyiv",
+    geolocationAccess: profile?.fingerprint.geolocationAccess ?? "ask",
+    geolocationMode: profile?.fingerprint.geolocationMode ?? "mask",
+    latitude: String(profile?.fingerprint.geolocation?.latitude ?? ""),
+    longitude: String(profile?.fingerprint.geolocation?.longitude ?? ""),
+    languageMode: profile?.fingerprint.languageMode ?? "mask",
     language: profile?.fingerprint.language ?? "en-US",
+    screenMode: profile?.fingerprint.screenMode ?? "mask",
     webRtcPolicy: profile?.fingerprint.webRtcPolicy ?? "company-network-only",
+    navigatorMode: profile?.fingerprint.navigatorMode ?? "mask",
+    platform: profile?.fingerprint.platform ?? "Win32",
+    hardwareConcurrency: String(profile?.fingerprint.hardwareConcurrency ?? 8),
+    osCpu: profile?.fingerprint.osCpu ?? "",
+    webGlMode: profile?.fingerprint.webGlMode ?? "mask",
+    webGlVendor: profile?.fingerprint.webGlVendor ?? "Google Inc. (Intel)",
+    webGlRenderer: profile?.fingerprint.webGlRenderer ?? "ANGLE (Intel, Intel(R) UHD Graphics)",
+    webGpuVendorId: profile?.fingerprint.webGpuVendorId ?? "",
+    webGpuDeviceId: profile?.fingerprint.webGpuDeviceId ?? "",
     width: String(profile?.fingerprint.screen.width ?? 1440),
     height: String(profile?.fingerprint.screen.height ?? 900)
   });
@@ -289,14 +309,31 @@ function ProfileEditorDialog({
       return;
     }
 
+    const latitude = Number(form.latitude);
+    const longitude = Number(form.longitude);
+    const hardwareConcurrency = Number(form.hardwareConcurrency);
     const fingerprint: FingerprintSettings = {
       userAgent: form.userAgent.trim(),
+      timezoneMode: form.timezoneMode as FingerprintSettings["timezoneMode"],
       timezone: form.timezone.trim() || "UTC",
+      languageMode: form.languageMode as FingerprintSettings["languageMode"],
       language: form.language.trim() || "en-US",
+      screenMode: form.screenMode as FingerprintSettings["screenMode"],
       screen: { width, height },
       webRtcPolicy: form.webRtcPolicy as FingerprintSettings["webRtcPolicy"],
+      geolocationAccess: form.geolocationAccess as FingerprintSettings["geolocationAccess"],
+      geolocationMode: form.geolocationMode as FingerprintSettings["geolocationMode"],
+      geolocation: Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : undefined,
+      navigatorMode: form.navigatorMode as FingerprintSettings["navigatorMode"],
+      platform: form.platform.trim() || undefined,
+      hardwareConcurrency: Number.isFinite(hardwareConcurrency) ? hardwareConcurrency : undefined,
+      osCpu: form.osCpu.trim() || undefined,
       canvasMode: "default",
-      webGlVendor: "Google Inc.",
+      webGlMode: form.webGlMode as FingerprintSettings["webGlMode"],
+      webGlVendor: form.webGlVendor.trim() || "Google Inc.",
+      webGlRenderer: form.webGlRenderer.trim() || undefined,
+      webGpuVendorId: form.webGpuVendorId.trim() || undefined,
+      webGpuDeviceId: form.webGpuDeviceId.trim() || undefined,
       fonts: ["Arial", "Inter", "Segoe UI", "Roboto"],
       mediaDevices: { audioInputs: 1, videoInputs: 1, audioOutputs: 1 }
     };
@@ -337,6 +374,10 @@ function ProfileEditorDialog({
         notes: form.notes.trim() || undefined,
         proxyId,
         proxyProtocol: form.proxyProtocol as ProxySettings["protocol"],
+        tabBehavior: form.tabBehavior as BrowserProfile["tabBehavior"],
+        operatingSystem: form.operatingSystem as BrowserProfile["operatingSystem"],
+        browserEngine: form.browserEngine as BrowserProfile["browserEngine"],
+        storageMode: form.storageMode as BrowserProfile["storageMode"],
         startupUrls: splitList(form.startupUrls),
         fingerprint
       });
@@ -410,31 +451,41 @@ function ProfileEditorDialog({
               </div>
             </div>
           )}
+          <div className="col-span-2 mt-2 text-sm font-semibold">Browser</div>
+          <SelectInput label="Tab behavior" value={form.tabBehavior} onChange={(value) => update("tabBehavior", value)} options={[{ value: "restore", label: "Restore last session" }, { value: "custom", label: "Open startup URLs" }]} />
+          <SelectInput label="Operating system" value={form.operatingSystem} onChange={(value) => update("operatingSystem", value)} options={[{ value: "macos", label: "macOS" }, { value: "windows", label: "Windows" }, { value: "linux", label: "Linux" }, { value: "android", label: "Android" }]} />
+          <SelectInput label="Browser" value={form.browserEngine} onChange={(value) => update("browserEngine", value)} options={[{ value: "chromium", label: "Mimic (Chromium)" }, { value: "firefox", label: "Stealthfox (Firefox / SOCKS5)" }]} />
+          <SelectInput label="Storage" value={form.storageMode} onChange={(value) => update("storageMode", value)} options={[{ value: "cloud", label: "Cloud" }, { value: "device", label: "Device" }]} />
           <TextInput label="Startup URLs" value={form.startupUrls} onChange={(value) => update("startupUrls", value)} placeholder="https://app.company.com" />
           <div className="col-span-2">
             <TextArea label="Notes" value={form.notes} onChange={(value) => update("notes", value)} placeholder="Purpose, owner, account notes" />
           </div>
-          <div className="col-span-2 mt-2 text-sm font-semibold">Fingerprint preset</div>
-          <div className="col-span-2">
-            <TextInput label="User agent" value={form.userAgent} onChange={(value) => update("userAgent", value)} />
-          </div>
+          <div className="col-span-2 mt-2 text-sm font-semibold">Fingerprint</div>
+          <SelectInput label="WebRTC" value={form.webRtcPolicy} onChange={(value) => update("webRtcPolicy", value)} options={[{ value: "company-network-only", label: "Mask" }, { value: "default", label: "Real" }, { value: "disabled", label: "Disabled" }]} />
+          <SelectInput label="Timezone mode" value={form.timezoneMode} onChange={(value) => update("timezoneMode", value)} options={[{ value: "mask", label: "Mask" }, { value: "custom", label: "Custom" }, { value: "real", label: "Real" }]} />
           <TextInput label="Timezone" value={form.timezone} onChange={(value) => update("timezone", value)} />
+          <SelectInput label="Geolocation access" value={form.geolocationAccess} onChange={(value) => update("geolocationAccess", value)} options={[{ value: "ask", label: "Ask" }, { value: "allow", label: "Allow" }, { value: "block", label: "Block" }]} />
+          <SelectInput label="Geolocation data" value={form.geolocationMode} onChange={(value) => update("geolocationMode", value)} options={[{ value: "mask", label: "Mask" }, { value: "custom", label: "Custom" }]} />
+          <TextInput label="Latitude" value={form.latitude} onChange={(value) => update("latitude", value)} />
+          <TextInput label="Longitude" value={form.longitude} onChange={(value) => update("longitude", value)} />
+          <SelectInput label="Browser languages" value={form.languageMode} onChange={(value) => update("languageMode", value)} options={[{ value: "mask", label: "Mask" }, { value: "custom", label: "Custom" }, { value: "real", label: "Real" }]} />
           <TextInput label="Language" value={form.language} onChange={(value) => update("language", value)} />
-          <SelectInput
-            label="WebRTC policy"
-            value={form.webRtcPolicy}
-            onChange={(value) => update("webRtcPolicy", value)}
-            options={[
-              { value: "company-network-only", label: "Proxy-safe company network only" },
-              { value: "disabled", label: "Disabled" },
-              { value: "default", label: "Default browser behavior" }
-            ]}
-          />
+          <SelectInput label="Screen mode" value={form.screenMode} onChange={(value) => update("screenMode", value)} options={[{ value: "mask", label: "Mask" }, { value: "custom", label: "Custom" }, { value: "real", label: "Real" }]} />
+          <TextInput label="Screen width" value={form.width} onChange={(value) => update("width", value)} />
+          <TextInput label="Screen height" value={form.height} onChange={(value) => update("height", value)} />
+          <SelectInput label="Navigator" value={form.navigatorMode} onChange={(value) => update("navigatorMode", value)} options={[{ value: "mask", label: "Mask" }, { value: "custom", label: "Custom" }, { value: "real", label: "Real" }]} />
+          <div className="col-span-2"><TextInput label="User agent" value={form.userAgent} onChange={(value) => update("userAgent", value)} /></div>
+          <TextInput label="Platform" value={form.platform} onChange={(value) => update("platform", value)} />
+          <TextInput label="CPU cores" value={form.hardwareConcurrency} onChange={(value) => update("hardwareConcurrency", value)} />
+          <div className="col-span-2"><TextInput label="OSCpu (optional)" value={form.osCpu} onChange={(value) => update("osCpu", value)} /></div>
+          <SelectInput label="WebGL + WebGPU" value={form.webGlMode} onChange={(value) => update("webGlMode", value)} options={[{ value: "mask", label: "Mask" }, { value: "custom", label: "Custom" }, { value: "real", label: "Real" }]} />
+          <TextInput label="WebGL vendor" value={form.webGlVendor} onChange={(value) => update("webGlVendor", value)} />
+          <TextInput label="WebGL renderer" value={form.webGlRenderer} onChange={(value) => update("webGlRenderer", value)} />
+          <TextInput label="WebGPU vendor ID" value={form.webGpuVendorId} onChange={(value) => update("webGpuVendorId", value)} />
+          <TextInput label="WebGPU device ID" value={form.webGpuDeviceId} onChange={(value) => update("webGpuDeviceId", value)} />
           <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-[#202328] dark:text-gray-400">
             DNS leak-safe mode is applied automatically when a profile uses a proxy.
           </div>
-          <TextInput label="Screen width" value={form.width} onChange={(value) => update("width", value)} />
-          <TextInput label="Screen height" value={form.height} onChange={(value) => update("height", value)} />
         </div>
         {error && <div className="mx-5 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200">{error}</div>}
         <div className="flex justify-end gap-2 border-t border-line p-5 dark:border-white/10">

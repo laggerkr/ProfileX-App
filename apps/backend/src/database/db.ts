@@ -97,6 +97,10 @@ function migrate(db: AppDatabase) {
   addColumnIfMissing(db, "proxies", "http_port", "INTEGER");
   addColumnIfMissing(db, "proxies", "socks5_port", "INTEGER");
   addColumnIfMissing(db, "profiles", "proxy_protocol", "TEXT");
+  addColumnIfMissing(db, "profiles", "tab_behavior", "TEXT");
+  addColumnIfMissing(db, "profiles", "operating_system", "TEXT");
+  addColumnIfMissing(db, "profiles", "browser_engine", "TEXT");
+  addColumnIfMissing(db, "profiles", "storage_mode", "TEXT");
   backfillProxyPorts(db);
   mergeLegacyProxyRows(db);
 }
@@ -112,6 +116,10 @@ function backfillProxyPorts(db: AppDatabase) {
   db.exec("UPDATE proxies SET socks5_port = port WHERE socks5_port IS NULL AND protocol = 'socks5'");
   db.exec("UPDATE profiles SET proxy_protocol = (SELECT CASE WHEN proxies.protocol = 'socks5' THEN 'socks5' ELSE 'http' END FROM proxies WHERE proxies.id = profiles.proxy_id) WHERE proxy_protocol IS NULL AND proxy_id IS NOT NULL");
   db.exec("UPDATE profiles SET proxy_protocol = 'http' WHERE proxy_protocol IS NULL");
+  db.exec("UPDATE profiles SET tab_behavior = 'custom' WHERE tab_behavior IS NULL");
+  db.exec("UPDATE profiles SET operating_system = 'windows' WHERE operating_system IS NULL");
+  db.exec("UPDATE profiles SET browser_engine = 'chromium' WHERE browser_engine IS NULL");
+  db.exec("UPDATE profiles SET storage_mode = 'device' WHERE storage_mode IS NULL");
 }
 
 function mergeLegacyProxyRows(db: AppDatabase) {

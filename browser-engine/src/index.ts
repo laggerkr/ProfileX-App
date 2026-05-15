@@ -1,7 +1,8 @@
-import { chromium, type BrowserContext, type Page } from "playwright";
+import { chromium, firefox, type BrowserContext, type Page } from "playwright";
 import type { BrowserProfile, LaunchProfileRequest, ProxySettings } from "@profilex/shared";
 import fs from "node:fs";
 import path from "node:path";
+import net, { type Server, type Socket } from "node:net";
 
 export interface LaunchProfileOptions {
   profile: BrowserProfile;
@@ -13,6 +14,7 @@ export interface LaunchProfileOptions {
 export interface RunningProfile {
   id: string;
   context: BrowserContext;
+  relay?: Server;
   startedAt: string;
 }
 
@@ -23,25 +25,19 @@ export function listRunningProfiles() {
 }
 
 export async function getBrowserEngineStatus() {
-  try {
-    const executablePath = chromium.executablePath();
-    if (!fs.existsSync(executablePath)) {
-      throw new Error("Chromium runtime is missing. Run: npx.cmd playwright install chromium");
-    }
-    return {
-      ok: true,
-      engine: "chromium",
-      executablePath,
-      runningProfiles: listRunningProfiles().length
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      engine: "chromium",
-      runningProfiles: listRunningProfiles().length,
-      error: error instanceof Error ? error.message : "Chromium runtime is not available"
-    };
-  }
+  const engines = [
+    { id: "chromium", executablePath: chromium.executablePath() },
+    { id: "firefox", executablePath: firefox.executablePath() }
+  ];
+  const available = engines.map((engine) => ({ ...engine, ok: fs.existsSync(engine.executablePath) }));
+  return {
+    ok: available.some((engine) => engine.ok),
+    engine: available.find((engine) => engine.ok)?.id ?? "chromium",
+    executablePath: available.find((engine) => engine.ok)?.executablePath,
+    engines: available,
+    runningProfiles: listRunningProfiles().length,
+    error: available.some((engine) => engine.ok) ? undefined : "Browser runtimes are missing. Run: npx.cmd playwright install chromium firefox"
+  };
 }
 
 export async function launchProfile({ profile, proxy, request, dataRoot }: LaunchProfileOptions) {
@@ -49,43 +45,74 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
     return { profileId: profile.id, alreadyRunning: true };
   }
 
-  const userDataDir = path.join(dataRoot, "profiles", profile.id, "chromium");
+  const engine = profile.browserEngine ?? "chromium";
+  const browserType = engine === "firefox" ? firefox : chromium;
+  const storageRoot = profile.storageMode === "cloud" ? "cloud-profiles" : "profiles";
+  const userDataDir = path.join(dataRoot, storageRoot, profile.id, engine);
   const fingerprint = profile.fingerprint;
-  if (proxy?.protocol === "socks5" && (proxy.username || proxy.password)) {
-    throw new Error(
-      "Chromium does not support SOCKS5 proxy authentication. Use the provider's HTTP proxy port for authenticated proxy sessions."
-    );
-  }
+  const relay = proxy?.protocol === "socks5" && (proxy.username || proxy.password)
+    ? await createSocks5Relay(proxy)
+    : undefined;
   const proxyConfig = proxy
-    ? {
-        server: `${normalizeProxyProtocol(proxy.protocol)}://${proxy.host}:${proxy.port}`,
-        username: proxy.username,
-        password: proxy.password
-      }
+    ? relay
+      ? { server: `socks5://127.0.0.1:${relay.address().port}` }
+      : {
+          server: `${normalizeProxyProtocol(proxy.protocol)}://${proxy.host}:${proxy.port}`,
+          username: proxy.username,
+          password: proxy.password
+        }
     : undefined;
 
   const urls = normalizeStartupUrls(request.startupUrls?.length ? request.startupUrls : profile.startupUrls);
 
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    executablePath: chromium.executablePath(),
+  const context = await browserType.launchPersistentContext(userDataDir, {
+    executablePath: browserType.executablePath(),
     headless: Boolean(request.headless),
     proxy: proxyConfig,
-    locale: fingerprint.language,
-    timezoneId: fingerprint.timezone,
-    userAgent: fingerprint.userAgent,
-    viewport: fingerprint.screen,
+    locale: fingerprint.languageMode === "real" ? undefined : fingerprint.language,
+    timezoneId: fingerprint.timezoneMode === "real" ? undefined : fingerprint.timezone,
+    userAgent: fingerprint.navigatorMode === "real" ? undefined : fingerprint.userAgent,
+    viewport: fingerprint.screenMode === "real" ? undefined : fingerprint.screen,
+    geolocation: fingerprint.geolocationMode === "custom" ? fingerprint.geolocation : undefined,
     extraHTTPHeaders: {
       "Accept-Language": buildAcceptLanguage(fingerprint.language)
     },
-    args: buildChromiumArgs(profile, proxy),
-    permissions: []
+    args: engine === "chromium" ? buildChromiumArgs(profile, proxy) : [],
+    firefoxUserPrefs: engine === "firefox"
+      ? {
+          ...(proxy?.protocol === "socks5" ? { "network.proxy.socks_remote_dns": true } : {}),
+          ...(profile.tabBehavior === "restore" ? { "browser.startup.page": 3 } : {})
+        }
+      : undefined,
+    permissions: fingerprint.geolocationAccess === "allow" ? ["geolocation"] : []
   });
 
   await context.addInitScript((fp) => {
-    Object.defineProperty(navigator, "language", { get: () => fp.language });
-    Object.defineProperty(navigator, "languages", { get: () => [fp.language, "en-US"] });
-    Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 8 });
-    Object.defineProperty(navigator, "deviceMemory", { get: () => 8 });
+    if (fp.languageMode !== "real") {
+      Object.defineProperty(navigator, "language", { get: () => fp.language });
+      Object.defineProperty(navigator, "languages", { get: () => [fp.language, "en-US"] });
+    }
+    if (fp.navigatorMode !== "real") {
+      if (fp.platform) Object.defineProperty(navigator, "platform", { get: () => fp.platform });
+      if (fp.hardwareConcurrency) Object.defineProperty(navigator, "hardwareConcurrency", { get: () => fp.hardwareConcurrency });
+      Object.defineProperty(navigator, "deviceMemory", { get: () => 8 });
+    }
+    if (fp.webGlMode !== "real") {
+      const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = function(parameter) {
+        if (parameter === 37445) return fp.webGlVendor;
+        if (parameter === 37446) return fp.webGlRenderer ?? "";
+        return originalGetParameter.call(this, parameter);
+      };
+    }
+
+    if (fp.geolocationAccess === "block") {
+      navigator.geolocation.getCurrentPosition = (_success, error) => error?.({ code: 1, message: "Geolocation blocked" } as GeolocationPositionError);
+      navigator.geolocation.watchPosition = (_success, error) => {
+        error?.({ code: 1, message: "Geolocation blocked" } as GeolocationPositionError);
+        return 0;
+      };
+    }
 
     if (fp.webRtcPolicy === "disabled") {
       Object.defineProperty(window, "RTCPeerConnection", { value: undefined, configurable: true });
@@ -94,7 +121,7 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
     }
   }, fingerprint);
 
-  if (urls.length) {
+  if ((profile.tabBehavior ?? "custom") === "custom" && urls.length) {
     const existingPages = context.pages();
     const firstPage = existingPages[0] ?? await context.newPage();
     await openStartupUrl(firstPage, urls[0]);
@@ -110,10 +137,14 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
   runningProfiles.set(profile.id, {
     id: profile.id,
     context,
+    relay: relay?.server,
     startedAt: new Date().toISOString()
   });
 
-  context.on("close", () => runningProfiles.delete(profile.id));
+  context.on("close", () => {
+    relay?.server.close();
+    runningProfiles.delete(profile.id);
+  });
   return { profileId: profile.id, alreadyRunning: false };
 }
 
@@ -121,6 +152,7 @@ export async function stopProfile(profileId: string) {
   const running = runningProfiles.get(profileId);
   if (!running) return { profileId, stopped: false };
   await running.context.close();
+  running.relay?.close();
   runningProfiles.delete(profileId);
   return { profileId, stopped: true };
 }
@@ -178,6 +210,10 @@ function buildChromiumArgs(profile: BrowserProfile, proxy?: ProxySettings) {
     "--no-pings"
   ];
 
+  if (profile.tabBehavior === "restore") {
+    args.push("--restore-last-session");
+  }
+
   if (proxy) {
     args.push("--disable-quic");
   }
@@ -204,4 +240,106 @@ function buildChromiumArgs(profile: BrowserProfile, proxy?: ProxySettings) {
   }
 
   return args;
+}
+
+
+async function createSocks5Relay(proxy: ProxySettings) {
+  const server = net.createServer((client) => void handleRelayClient(client, proxy));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Could not start SOCKS5 relay");
+  return { server, address: () => address };
+}
+
+async function handleRelayClient(client: Socket, proxy: ProxySettings) {
+  try {
+    const greeting = await readSocket(client, 2);
+    const methods = await readSocket(client, greeting[1]);
+    if (greeting[0] !== 5 || !methods.includes(0)) throw new Error("Unsupported SOCKS5 greeting");
+    client.write(Buffer.from([5, 0]));
+
+    const request = await readSocket(client, 4);
+    if (request[0] !== 5 || request[1] !== 1) throw new Error("Unsupported SOCKS5 request");
+    const target = await readSocksTarget(client, request[3]);
+    const upstream = await connectViaAuthenticatedSocks(proxy, target.host, target.port);
+    client.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
+    client.pipe(upstream).pipe(client);
+  } catch {
+    client.destroy();
+  }
+}
+
+async function connectViaAuthenticatedSocks(proxy: ProxySettings, host: string, port: number) {
+  const socket = await new Promise<Socket>((resolve, reject) => {
+    const upstream = net.createConnection({ host: proxy.host, port: proxy.port });
+    upstream.once("connect", () => resolve(upstream));
+    upstream.once("error", reject);
+  });
+  socket.write(Buffer.from([5, 1, 2]));
+  const greeting = await readSocket(socket, 2);
+  if (greeting[0] !== 5 || greeting[1] !== 2) throw new Error("SOCKS5 upstream auth method rejected");
+  const username = Buffer.from(proxy.username ?? "");
+  const password = Buffer.from(proxy.password ?? "");
+  socket.write(Buffer.concat([Buffer.from([1, username.length]), username, Buffer.from([password.length]), password]));
+  const auth = await readSocket(socket, 2);
+  if (auth[1] !== 0) throw new Error("SOCKS5 upstream authentication failed");
+  const hostBytes = Buffer.from(host);
+  socket.write(Buffer.concat([Buffer.from([5, 1, 0, 3, hostBytes.length]), hostBytes, Buffer.from([port >> 8, port & 255])]));
+  const response = await readSocket(socket, 4);
+  if (response[1] !== 0) throw new Error("SOCKS5 upstream connect failed");
+  await readSocksTarget(socket, response[3]);
+  return socket;
+}
+
+async function readSocksTarget(socket: Socket, addressType: number) {
+  if (addressType === 1) {
+    const bytes = await readSocket(socket, 4);
+    const portBytes = await readSocket(socket, 2);
+    return { host: [...bytes].join("."), port: portBytes.readUInt16BE(0) };
+  }
+  if (addressType === 3) {
+    const length = (await readSocket(socket, 1))[0];
+    const host = (await readSocket(socket, length)).toString("utf8");
+    const portBytes = await readSocket(socket, 2);
+    return { host, port: portBytes.readUInt16BE(0) };
+  }
+  if (addressType === 4) {
+    const bytes = await readSocket(socket, 16);
+    const portBytes = await readSocket(socket, 2);
+    return { host: bytes.toString("hex"), port: portBytes.readUInt16BE(0) };
+  }
+  throw new Error("Unsupported SOCKS5 address type");
+}
+
+function readSocket(socket: Socket, length: number) {
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let received = 0;
+    const onData = (chunk: Buffer) => {
+      chunks.push(chunk);
+      received += chunk.length;
+      if (received < length) return;
+      cleanup();
+      const buffer = Buffer.concat(chunks);
+      const extra = buffer.subarray(length);
+      if (extra.length) socket.unshift(extra);
+      resolve(buffer.subarray(0, length));
+    };
+    const onError = (error: Error) => { cleanup(); reject(error); };
+    const onClose = () => { cleanup(); reject(new Error("Socket closed")); };
+    const cleanup = () => {
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.off("close", onClose);
+    };
+    socket.on("data", onData);
+    socket.once("error", onError);
+    socket.once("close", onClose);
+  });
 }
