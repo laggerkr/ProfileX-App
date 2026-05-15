@@ -101,10 +101,8 @@ export function createRoutes(db: AppDatabase) {
     }
   });
   router.post("/proxies/check-all", async (_req, res) => {
-    const checked = [];
-    for (const proxy of listProxies(db)) {
-      checked.push(await checkProxy(db, proxy.id));
-    }
+    const proxies = listProxies(db);
+    const checked = await mapWithConcurrency(proxies, 8, (proxy) => checkProxy(db, proxy.id, { detectCountry: false }));
     return res.json({ data: { checked, checkedCount: checked.length } });
   });
   router.post("/proxies/:id/check", async (req, res) => res.json({ data: await checkProxy(db, req.params.id) }));
@@ -225,4 +223,16 @@ function syncProfileRuntimeStatuses(db: AppDatabase) {
       updateProfile(db, profile.id, { status: "ready" });
     }
   }
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await worker(items[currentIndex]);
+    }
+  }));
+  return results;
 }

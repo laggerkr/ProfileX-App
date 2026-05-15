@@ -691,9 +691,9 @@ function ProxyManager() {
                 <td className="truncate px-3 py-2 font-mono text-xs">{proxy.password ?? (proxy.hasPassword ? "Saved" : "-")}</td>
                 <td className="truncate px-3 py-2">{proxy.country ?? "Unknown"}</td>
                 <td className="px-3 py-2">
-                  <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">{proxy.status}</span>
-                    <span className="text-xs text-gray-400">{proxy.latencyMs ?? "-"} ms</span>
+                  <div className="space-y-1 whitespace-nowrap">
+                    <span className="inline-flex rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">{proxy.status}</span>
+                    <div className="text-xs text-gray-400">{proxy.latencyMs ?? "-"} ms</div>
                   </div>
                 </td>
                 <td className="px-3 py-2">

@@ -117,18 +117,18 @@ export function deleteProxy(db: AppDatabase, id: string) {
   return Boolean(proxy);
 }
 
-export async function checkProxy(db: AppDatabase, id: string) {
+export async function checkProxy(db: AppDatabase, id: string, options: { detectCountry?: boolean } = {}) {
   const proxy = getProxy(db, id);
   if (!proxy) return undefined;
+  const target = getProxyCheckTarget(proxy);
   const started = Date.now();
-  const status =
-    proxy.protocol === "http" || proxy.protocol === "https"
-      ? await checkHttpProxyTunnel(proxy)
-      : await checkTcpProxy(proxy);
+  const status = await checkProxyTarget(target);
   const latency = Date.now() - started;
   const checkedAt = new Date().toISOString();
-  const geo = await detectProxyCountryByHost(proxy.host).catch(() => undefined);
-  db.prepare("UPDATE proxies SET status=?, latency_ms=?, last_checked_at=?, country=?, country_code=? WHERE id=?").run(
+  const geo = options.detectCountry === false ? undefined : await detectProxyCountryByHost(proxy.host).catch(() => undefined);
+  db.prepare("UPDATE proxies SET protocol=?, port=?, status=?, latency_ms=?, last_checked_at=?, country=?, country_code=? WHERE id=?").run(
+    target.protocol,
+    target.port,
     status,
     latency,
     checkedAt,
@@ -136,7 +136,23 @@ export async function checkProxy(db: AppDatabase, id: string) {
     geo?.countryCode ?? proxy.countryCode,
     id
   );
-  return toPublicProxy({ ...proxy, ...geo, status, latencyMs: latency, lastCheckedAt: checkedAt });
+  return toPublicProxy({ ...proxy, ...target, ...geo, status, latencyMs: latency, lastCheckedAt: checkedAt });
+}
+
+function getProxyCheckTarget(proxy: ProxySettings): ProxySettings {
+  if (proxy.httpPort) return { ...proxy, protocol: "http", port: proxy.httpPort };
+  if (proxy.socks5Port) return { ...proxy, protocol: "socks5", port: proxy.socks5Port };
+  return proxy;
+}
+
+async function checkProxyTarget(proxy: ProxySettings) {
+  try {
+    return proxy.protocol === "http" || proxy.protocol === "https"
+      ? await checkHttpProxyTunnel(proxy)
+      : await checkTcpProxy(proxy);
+  } catch {
+    return "offline" as const;
+  }
 }
 
 export async function detectProxyCountry(db: AppDatabase, id: string) {
