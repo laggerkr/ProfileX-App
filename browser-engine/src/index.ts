@@ -51,11 +51,13 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
   const userDataDir = path.join(dataRoot, storageRoot, profile.id, engine);
   const fingerprint = profile.fingerprint;
   const relay = proxy?.protocol === "socks5" && (proxy.username || proxy.password)
-    ? await createSocks5Relay(proxy)
+    ? engine === "firefox"
+      ? await createHttpRelay(proxy)
+      : await createSocks5Relay(proxy)
     : undefined;
   const proxyConfig = proxy
     ? relay
-      ? { server: `socks5://localhost:${relay.address().port}` }
+      ? { server: `${relay.protocol}://localhost:${relay.address().port}` }
       : {
           server: `${normalizeProxyProtocol(proxy.protocol)}://${proxy.host}:${proxy.port}`,
           username: proxy.username,
@@ -64,6 +66,8 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
     : undefined;
 
   const urls = normalizeStartupUrls(request.startupUrls?.length ? request.startupUrls : profile.startupUrls);
+
+  prepareBrowserProfile(userDataDir, profile, engine);
 
   const context = await browserType.launchPersistentContext(userDataDir, {
     executablePath: browserType.executablePath(),
@@ -80,7 +84,8 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
     args: engine === "chromium" ? buildChromiumArgs(profile, proxy) : [],
     firefoxUserPrefs: engine === "firefox"
       ? {
-          ...(proxy?.protocol === "socks5" ? {
+          "browser.privatebrowsing.autostart": true,
+          ...(proxy?.protocol === "socks5" && !relay ? {
             "network.proxy.socks_remote_dns": true,
             "network.proxy.socks_version": 5,
             "network.dns.disablePrefetch": true
@@ -90,6 +95,18 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
       : undefined,
     permissions: fingerprint.geolocationAccess === "allow" ? ["geolocation"] : []
   });
+
+  await context.addInitScript((profileName) => {
+    const applyProfileTitle = () => {
+      const prefix = `[${profileName}] `;
+      if (!document.title.startsWith(prefix)) {
+        document.title = `${prefix}${document.title || location.hostname || "New tab"}`;
+      }
+    };
+    window.addEventListener("DOMContentLoaded", applyProfileTitle);
+    const observer = new MutationObserver(applyProfileTitle);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }, profile.name);
 
   await context.addInitScript((fp) => {
     if (fp.languageMode !== "real") {
@@ -207,6 +224,7 @@ function buildChromiumArgs(profile: BrowserProfile, proxy?: ProxySettings) {
     `--lang=${fingerprint.language}`,
     "--no-first-run",
     "--no-default-browser-check",
+    "--incognito",
     "--disable-background-networking",
     "--disable-domain-reliability",
     "--disable-component-update",
@@ -247,6 +265,18 @@ function buildChromiumArgs(profile: BrowserProfile, proxy?: ProxySettings) {
 }
 
 
+function prepareBrowserProfile(userDataDir: string, profile: BrowserProfile, engine: string) {
+  if (engine !== "chromium") return;
+  const defaultProfileDir = path.join(userDataDir, "Default");
+  fs.mkdirSync(defaultProfileDir, { recursive: true });
+  const preferencesPath = path.join(defaultProfileDir, "Preferences");
+  const preferences = fs.existsSync(preferencesPath)
+    ? JSON.parse(fs.readFileSync(preferencesPath, "utf8"))
+    : {};
+  preferences.profile = { ...(preferences.profile ?? {}), name: profile.name };
+  fs.writeFileSync(preferencesPath, JSON.stringify(preferences));
+}
+
 async function createSocks5Relay(proxy: ProxySettings) {
   const server = net.createServer((client) => void handleRelayClient(client, proxy));
   await new Promise<void>((resolve, reject) => {
@@ -258,7 +288,44 @@ async function createSocks5Relay(proxy: ProxySettings) {
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Could not start SOCKS5 relay");
-  return { server, address: () => address };
+  return { server, protocol: "socks5", address: () => address };
+}
+
+async function createHttpRelay(proxy: ProxySettings) {
+  const server = net.createServer((client) => void handleHttpRelayClient(client, proxy));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Could not start HTTP relay");
+  return { server, protocol: "http", address: () => address };
+}
+
+async function handleHttpRelayClient(client: Socket, proxy: ProxySettings) {
+  try {
+    const header = await readHttpHeader(client);
+    const [requestLine, ...headerLines] = header.text.split("\r\n");
+    const [method, target, version] = requestLine.split(" ");
+    if (method === "CONNECT") {
+      const [host, rawPort] = target.split(":");
+      const upstream = await connectViaAuthenticatedSocks(proxy, createDomainTarget(host, Number(rawPort) || 443));
+      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      if (header.extra.length) upstream.write(header.extra);
+      client.pipe(upstream).pipe(client);
+      return;
+    }
+    const url = new URL(target);
+    const upstream = await connectViaAuthenticatedSocks(proxy, createDomainTarget(url.hostname, Number(url.port) || (url.protocol === "https:" ? 443 : 80)));
+    upstream.write([`${method} ${url.pathname}${url.search} ${version}`, ...headerLines].join("\r\n") + "\r\n\r\n");
+    if (header.extra.length) upstream.write(header.extra);
+    client.pipe(upstream).pipe(client);
+  } catch {
+    client.destroy();
+  }
 }
 
 async function handleRelayClient(client: Socket, proxy: ProxySettings) {
@@ -298,6 +365,39 @@ async function connectViaAuthenticatedSocks(proxy: ProxySettings, target: SocksT
   if (response[1] !== 0) throw new Error("SOCKS5 upstream connect failed");
   await readSocksTarget(socket, response[3]);
   return socket;
+}
+
+function createDomainTarget(host: string, port: number): SocksTarget {
+  const hostBytes = Buffer.from(host);
+  return {
+    addressType: 3,
+    addressBytes: Buffer.concat([Buffer.from([hostBytes.length]), hostBytes]),
+    portBytes: Buffer.from([(port >> 8) & 255, port & 255])
+  };
+}
+
+async function readHttpHeader(socket: Socket) {
+  return new Promise<{ text: string; extra: Buffer }>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const onData = (chunk: Buffer) => {
+      chunks.push(chunk);
+      const buffer = Buffer.concat(chunks);
+      const end = buffer.indexOf("\r\n\r\n");
+      if (end === -1) return;
+      cleanup();
+      resolve({ text: buffer.subarray(0, end).toString("utf8"), extra: buffer.subarray(end + 4) });
+    };
+    const onError = (error: Error) => { cleanup(); reject(error); };
+    const onClose = () => { cleanup(); reject(new Error("Socket closed")); };
+    const cleanup = () => {
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.off("close", onClose);
+    };
+    socket.on("data", onData);
+    socket.once("error", onError);
+    socket.once("close", onClose);
+  });
 }
 
 type SocksTarget = {

@@ -39,6 +39,8 @@ export function App() {
 function Dashboard() {
   const { dashboard, refresh } = useWorkspaceStore();
   const [browserStatus, setBrowserStatus] = useState<any>();
+  const usage = dashboard?.usage ?? [];
+  const maxLaunches = Math.max(1, ...usage.map((item) => item.launches));
   useEffect(() => { void api.browserStatus().then(setBrowserStatus); }, []);
   return (
     <section className="space-y-6">
@@ -53,14 +55,24 @@ function Dashboard() {
         <StatCard label="Team members" value="1" icon={<Users size={18} />} />
       </div>
       <div className="grid grid-cols-[1.2fr_0.8fr] gap-4">
-        <Panel title="Usage statistics">
-          <div className="flex h-56 items-end gap-3">
-            {(dashboard?.usage ?? []).map((item) => (
-              <div key={item.day} className="flex flex-1 flex-col items-center gap-2">
-                <div className="w-full rounded-t-lg bg-brand/80" style={{ height: `${30 + item.launches * 12}px` }} />
-                <span className="text-xs text-gray-500">{item.day}</span>
-              </div>
-            ))}
+        <Panel title="Launches over last 7 days">
+          <div className="grid h-60 grid-cols-[32px_1fr] gap-3">
+            <div className="flex flex-col justify-between pb-7 text-right text-xs text-gray-500">
+              <span>{maxLaunches}</span>
+              <span>{Math.ceil(maxLaunches / 2)}</span>
+              <span>0</span>
+            </div>
+            <div className="relative flex items-end gap-3 border-b border-line pb-7 dark:border-white/10">
+              <div className="pointer-events-none absolute inset-x-0 top-0 border-t border-dashed border-line dark:border-white/10" />
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-dashed border-line dark:border-white/10" />
+              {usage.map((item) => (
+                <div key={item.day} className="relative flex h-full flex-1 flex-col justify-end">
+                  <span className="mb-2 text-center text-xs font-medium">{item.launches}</span>
+                  <div className="rounded-t-lg bg-brand/80" style={{ height: `${Math.max(8, (item.launches / maxLaunches) * 100)}%` }} />
+                  <span className="absolute -bottom-6 w-full text-center text-xs text-gray-500">{item.day}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </Panel>
         <Panel title="Recent launches">
@@ -74,11 +86,18 @@ function Dashboard() {
           </div>
         </Panel>
       </div>
-      <Panel title="Runtime status">
+      <Panel title="Installed browser runtimes">
         <div className="grid grid-cols-3 gap-3 text-sm">
-          <Field label="Browser engine" value={browserStatus?.ok ? "Chromium ready" : "Chromium setup required"} />
-          <Field label="Running contexts" value={String(browserStatus?.runningProfiles ?? 0)} />
-          <Field label="Engine path" value={browserStatus?.executablePath ?? browserStatus?.error ?? "Checking..."} />
+          {(browserStatus?.engines ?? []).map((engine: any) => (
+            <div key={engine.id} className="rounded-lg bg-gray-50 p-3 dark:bg-[#202328]">
+              <div className="text-xs text-gray-500">{engine.id === "firefox" ? "Stealthfox" : "Mimic"}</div>
+              <div className={engine.ok ? "font-medium text-emerald-600" : "font-medium text-rose-500"}>{engine.ok ? "Ready" : "Missing"}</div>
+            </div>
+          ))}
+          <div className="rounded-lg bg-gray-50 p-3 dark:bg-[#202328]">
+            <div className="text-xs text-gray-500">Running browser sessions</div>
+            <div className="font-medium">{browserStatus?.runningProfiles ?? 0}</div>
+          </div>
         </div>
       </Panel>
     </section>
