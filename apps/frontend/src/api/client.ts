@@ -56,6 +56,10 @@ export const api = {
   deleteTeamGroup: (id: string) => request<{ deleted: boolean }>(`/team/groups/${id}`, { method: "DELETE" }),
   assignProfileGroup: (groupId: string, profileId: string) =>
     request<{ groupId: string; profileId: string }>(`/team/groups/${groupId}/profiles/${profileId}`, { method: "POST" }),
+  removeProfileFromGroup: (groupId: string, profileId: string) =>
+    request<{ groupId: string; profileId: string }>(`/team/groups/${groupId}/profiles/${profileId}`, { method: "DELETE" }),
+  removeMemberFromGroup: (groupId: string, memberId: string) =>
+    request<{ groupId: string; memberId: string }>(`/team/groups/${groupId}/members/${memberId}`, { method: "DELETE" }),
   smtpSettings: () => request<SmtpSettings>("/settings/smtp"),
   updateSmtpSettings: (settings: Partial<SmtpSettings>) => request<SmtpSettings>("/settings/smtp", { method: "PATCH", body: JSON.stringify(settings) }),
   proxylineSettings: () => request<ProxylineSettings>("/settings/proxyline"),
@@ -63,5 +67,6 @@ export const api = {
   deleteProxylineSettings: () => request<ProxylineSettings>("/settings/proxyline", { method: "DELETE" }),
   testSmtpSettings: (settings: Partial<SmtpSettings>) => request<{ ok: boolean }>("/settings/smtp/test", { method: "POST", body: JSON.stringify(settings) }),
   logs: () => request<any[]>("/logs"),
+  clearLogs: () => request<{ cleared: boolean }>("/logs", { method: "DELETE" }),
   pythonWorkerStatus: () => request<{ ok: boolean; url: string; capabilities: string[]; error?: string }>("/worker/python/status")
 };

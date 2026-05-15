@@ -7,7 +7,7 @@ import { cloneProfile, createProfile, deleteProfile, getProfile, listProfiles, u
 import { realisticFingerprintPreset } from "./services/fingerprintService.js";
 import { logActivity } from "./services/activityService.js";
 import { getPythonWorkerStatus, runPythonPageCheck, runPythonProxyCheck } from "./services/pythonWorkerService.js";
-import { acceptTeamInvitation, assignProfileGroup, createTeamGroup, createTeamMember, deleteTeamGroup, deleteTeamMember, getTeamWorkspace, resendTeamInvitation, updateTeamGroup, updateTeamMember } from "./services/teamService.js";
+import { acceptTeamInvitation, assignProfileGroup, createTeamGroup, createTeamMember, deleteTeamGroup, deleteTeamMember, getTeamWorkspace, removeMemberFromGroup, removeProfileFromGroup, resendTeamInvitation, updateTeamGroup, updateTeamMember } from "./services/teamService.js";
 import { deleteProxylineSettings, getProxylineSettings, getSmtpSettings, updateProxylineSettings, updateSmtpSettings } from "./services/settingsService.js";
 import { sendInvitationEmail, testSmtpSettings } from "./services/smtpService.js";
 import { getProxylineAccountSummary, importProxylineProxies } from "./services/proxylineService.js";
@@ -189,7 +189,21 @@ export function createRoutes(db: AppDatabase) {
     if (!assignment) return res.status(404).json({ error: "Group or profile not found" });
     return res.json({ data: assignment });
   });
+  router.delete("/team/groups/:id/profiles/:profileId", (req, res) => {
+    const removal = removeProfileFromGroup(db, req.params.profileId, req.params.id);
+    if (!removal) return res.status(404).json({ error: "Group or profile not found" });
+    return res.json({ data: removal });
+  });
+  router.delete("/team/groups/:id/members/:memberId", (req, res) => {
+    const removal = removeMemberFromGroup(db, req.params.memberId, req.params.id);
+    if (!removal) return res.status(404).json({ error: "Group or member not found" });
+    return res.json({ data: removal });
+  });
   router.get("/logs", (_req, res) => res.json({ data: db.prepare("SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 100").all() }));
+  router.delete("/logs", (_req, res) => {
+    db.prepare("DELETE FROM activity_logs").run();
+    return res.json({ data: { cleared: true } });
+  });
 
   router.get("/settings/smtp", (_req, res) => res.json({ data: getSmtpSettings(db) }));
   router.patch("/settings/smtp", (req, res) => res.json({ data: updateSmtpSettings(db, req.body) }));

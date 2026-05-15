@@ -64,6 +64,7 @@ export function getProxylineSettings(db: AppDatabase, options: { includeApiKey?:
   return {
     apiKey: options.includeApiKey ? apiKey : undefined,
     hasApiKey: Boolean(apiKey),
+    accountName: parsed.accountName,
     keySuffix: apiKey ? apiKey.slice(-4) : undefined
   };
 }
@@ -72,7 +73,8 @@ export function updateProxylineSettings(db: AppDatabase, patch: Partial<Proxylin
   const current = getRawProxylineSettings(db);
   const next = {
     ...current,
-    apiKeyEncrypted: patch.apiKey === undefined ? current.apiKeyEncrypted : encryptSecret(patch.apiKey.trim())
+    apiKeyEncrypted: patch.apiKey === undefined ? current.apiKeyEncrypted : encryptSecret(patch.apiKey.trim()),
+    accountName: patch.accountName?.trim() || current.accountName
   };
   db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)").run(PROXYLINE_SETTINGS_KEY, JSON.stringify(next));
   return getProxylineSettings(db);

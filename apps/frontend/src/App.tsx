@@ -1417,6 +1417,16 @@ function GroupsPage() {
     await loadTeam();
   };
 
+  const removeMember = async (groupId: string, memberId: string) => {
+    await api.removeMemberFromGroup(groupId, memberId);
+    await loadTeam();
+  };
+
+  const removeProfile = async (groupId: string, profileId: string) => {
+    await api.removeProfileFromGroup(groupId, profileId);
+    await Promise.all([loadTeam(), refresh()]);
+  };
+
   const memberById = useMemo(() => new Map(team.members.map((member) => [member.id, member])), [team.members]);
   const profileById = useMemo(() => new Map(profiles.map((profile) => [profile.id, profile])), [profiles]);
 
@@ -1450,8 +1460,8 @@ function GroupsPage() {
                 </div>
                 <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{group.description ?? "No description"}</div>
               </div>
-              <ChipLine empty="No members" values={groupMembers.map((member) => member?.name).filter(Boolean) as string[]} />
-              <ChipLine empty="No profiles" values={groupProfiles.map((profile) => profile.name)} />
+              <RemovableChipLine empty="No members" items={groupMembers.map((member) => ({ id: member!.id, label: member!.name }))} onRemove={(memberId) => void removeMember(group.id, memberId)} />
+              <RemovableChipLine empty="No profiles" items={groupProfiles.map((profile) => ({ id: profile.id, label: profile.name }))} onRemove={(profileId) => void removeProfile(group.id, profileId)} />
               <div className="grid gap-2">
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <select
@@ -1692,6 +1702,11 @@ function Logs() {
   useEffect(() => { void api.logs().then(setLogs); }, []);
   return (
     <Panel title="Activity Logs">
+      <div className="mb-4 flex justify-end">
+        <Button onClick={() => {
+          if (confirm("Clear all activity logs?")) void api.clearLogs().then(() => setLogs([]));
+        }}>Clear logs</Button>
+      </div>
       <div className="space-y-2">
         {logs.map((log) => (
           <div key={log.id} className="grid grid-cols-[160px_1fr_1fr] rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
@@ -1750,6 +1765,7 @@ function Settings() {
   const [smtpStatus, setSmtpStatus] = useState<string>();
   const [proxyline, setProxyline] = useState<ProxylineSettings>({});
   const [proxylineApiKey, setProxylineApiKey] = useState("");
+  const [proxylineAccountName, setProxylineAccountName] = useState("");
   const [proxylineStatus, setProxylineStatus] = useState<string>();
   const [biometricAvailable, setBiometricAvailable] = useState<boolean>();
   const [appLock, setAppLock] = useState<AppLockSettings>(() => getAppLockSettings());
@@ -1759,7 +1775,10 @@ function Settings() {
 
   useEffect(() => {
     void api.smtpSettings().then(setSmtp);
-    void api.proxylineSettings().then(setProxyline);
+    void api.proxylineSettings().then((settings) => {
+      setProxyline(settings);
+      setProxylineAccountName(settings.accountName ?? "");
+    });
     if (!window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
       setBiometricAvailable(false);
       return;
@@ -1795,7 +1814,7 @@ function Settings() {
   };
 
   const saveProxyline = async () => {
-    const saved = await api.updateProxylineSettings(proxylineApiKey ? { apiKey: proxylineApiKey } : {});
+    const saved = await api.updateProxylineSettings({ ...(proxylineApiKey ? { apiKey: proxylineApiKey } : {}), accountName: proxylineAccountName });
     setProxyline(saved);
     setProxylineApiKey("");
     setProxylineStatus("Proxyline API key saved.");
@@ -1845,7 +1864,7 @@ function Settings() {
     setSecurityStatus("App lock disabled.");
   };
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 xl:grid-cols-2">
       <Panel title="Appearance">
         <div className="grid grid-cols-2 gap-3">
           <Button className="justify-center" variant={theme === "light" ? "primary" : "secondary"} icon={<Sun size={16} />} onClick={() => changeTheme("light")}>
@@ -1886,9 +1905,10 @@ function Settings() {
         <div className="space-y-3">
           <div className="rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
             <div className="text-xs text-gray-500">Connected account</div>
-            <div className="mt-1 font-medium">{proxyline.hasApiKey ? `API key ???? ${proxyline.keySuffix ?? ""}` : "Not connected"}</div>
+            <div className="mt-1 font-medium">{proxyline.hasApiKey ? (proxyline.accountName || `API key ???? ${proxyline.keySuffix ?? ""}`) : "Not connected"}</div>
             {proxyline.balance !== undefined && <div className="mt-1 text-sm text-gray-500">Balance: {proxyline.balance}</div>}
           </div>
+          <TextInput label="Account name" value={proxylineAccountName} onChange={setProxylineAccountName} placeholder="Main Proxyline account" />
           <TextInput
             label={proxyline.hasApiKey ? "API key (saved)" : "API key"}
             value={proxylineApiKey}
@@ -2118,13 +2138,24 @@ function useTheme() {
 }
 
 function LoginPage() {
+  const [mode, setMode] = useState<"login" | "register">("login");
   return (
-    <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
-      <h1 className="text-xl font-semibold">Company Sign In</h1>
+    <div className="mx-auto mt-10 max-w-lg rounded-2xl border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
+      <div className="grid grid-cols-2 rounded-xl bg-gray-50 p-1 dark:bg-[#202328]">
+        <button className={`rounded-lg px-3 py-2 text-sm ${mode === "login" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => setMode("login")}>Sign in</button>
+        <button className={`rounded-lg px-3 py-2 text-sm ${mode === "register" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => setMode("register")}>Register</button>
+      </div>
+      <h1 className="mt-5 text-xl font-semibold">{mode === "login" ? "Welcome back" : "Create ProfileX account"}</h1>
       <div className="mt-4 space-y-3">
+        {mode === "register" && <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Name" />}
         <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Email" />
-        <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Password or SSO token" type="password" />
-        <Button className="w-full" variant="primary" icon={<Globe2 size={16} />}>Continue</Button>
+        <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Password" type="password" />
+        <Button className="w-full justify-center" variant="primary">{mode === "login" ? "Sign in" : "Create account"}</Button>
+      </div>
+      <div className="my-5 flex items-center gap-3 text-xs text-gray-400"><span className="h-px flex-1 bg-line dark:bg-white/10" />or continue with<span className="h-px flex-1 bg-line dark:bg-white/10" /></div>
+      <div className="grid grid-cols-2 gap-3">
+        <Button className="justify-center">Google</Button>
+        <Button className="justify-center">Telegram</Button>
       </div>
     </div>
   );

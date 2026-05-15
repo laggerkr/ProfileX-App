@@ -204,6 +204,25 @@ export function assignProfileGroup(db: AppDatabase, profileId: string, groupId: 
   return { profileId, groupId };
 }
 
+export function removeMemberFromGroup(db: AppDatabase, memberId: string, groupId: string) {
+  const group = db.prepare("SELECT * FROM team_groups WHERE id = ?").get(groupId);
+  const member = db.prepare("SELECT * FROM team_members WHERE id = ?").get(memberId);
+  if (!group || !member) return undefined;
+  db.prepare("DELETE FROM team_group_members WHERE group_id=? AND member_id=?").run(groupId, memberId);
+  logActivity(db, "member.group_removed", `${member.name} <- ${group.name}`);
+  return { memberId, groupId };
+}
+
+export function removeProfileFromGroup(db: AppDatabase, profileId: string, groupId: string) {
+  const group = db.prepare("SELECT * FROM team_groups WHERE id = ?").get(groupId);
+  const profile = db.prepare("SELECT * FROM profiles WHERE id = ?").get(profileId);
+  if (!group || !profile) return undefined;
+  db.prepare("UPDATE profiles SET profile_group='Default', updated_at=? WHERE id=? AND profile_group=?").run(new Date().toISOString(), profileId, group.name);
+  ensureGroup(db, "Default");
+  logActivity(db, "profile.group_removed", `${profile.name} <- ${group.name}`);
+  return { profileId, groupId };
+}
+
 function setMemberGroups(db: AppDatabase, memberId: string, groupIds: string[]) {
   db.prepare("DELETE FROM team_group_members WHERE member_id = ?").run(memberId);
   for (const groupId of groupIds.filter(Boolean)) {
