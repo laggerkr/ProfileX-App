@@ -90,6 +90,13 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
             "network.proxy.socks_version": 5,
             "network.dns.disablePrefetch": true
           } : {}),
+          ...(proxy && fingerprint.webRtcPolicy === "company-network-only" ? {
+            "media.peerconnection.ice.proxy_only_if_behind_proxy": true,
+            "media.peerconnection.ice.no_host": true
+          } : {}),
+          ...(fingerprint.webRtcPolicy === "disabled" ? {
+            "media.peerconnection.enabled": false
+          } : {}),
           ...(profile.tabBehavior === "restore" ? { "browser.startup.page": 3 } : {})
         }
       : undefined,

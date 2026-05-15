@@ -18,7 +18,7 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  if (isLocked) return <AppLockScreen onUnlock={() => setLocked(false)} />;
+  if (isLocked) return <AppLockGate onUnlock={() => setLocked(false)} />;
 
   return (
     <Shell>
@@ -1919,9 +1919,16 @@ function Settings() {
       <Panel title="Proxyline integration">
         <div className="space-y-3">
           <div className="rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
-            <div className="text-xs text-gray-500">Connected account</div>
-            <div className="mt-1 font-medium">{proxyline.hasApiKey ? (proxyline.accountName || `API key ending in ${proxyline.keySuffix ?? ""}`) : "Not connected"}</div>
-            {proxyline.balance !== undefined && <div className="mt-1 text-sm text-gray-500">Balance: {proxyline.balance}</div>}
+            <div className="text-xs text-gray-500">Connected accounts</div>
+            {proxyline.hasApiKey ? (
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-white p-3 dark:bg-[#17191c]">
+                <div>
+                  <div className="font-medium">{proxyline.accountName || `API key ending in ${proxyline.keySuffix ?? ""}`}</div>
+                  {proxyline.balance !== undefined && <div className="mt-1 text-sm text-gray-500">Balance: {proxyline.balance}</div>}
+                </div>
+                <Button onClick={() => void deleteProxyline()}>Remove</Button>
+              </div>
+            ) : <div className="mt-1 font-medium">Not connected</div>}
           </div>
           <TextInput label="Account name" value={proxylineAccountName} onChange={setProxylineAccountName} placeholder="Main Proxyline account" />
           <TextInput
@@ -1935,46 +1942,56 @@ function Settings() {
           />
           <div className="text-sm text-gray-500 dark:text-gray-400">Used to import active HTTP and SOCKS5 proxies directly from Proxyline.</div>
           <div className="flex justify-end gap-2">
-            {proxyline.hasApiKey && <Button onClick={() => void deleteProxyline()}>Remove integration</Button>}
             <Button variant="primary" onClick={() => void saveProxyline()}>Save Proxyline key</Button>
           </div>
         </div>
         {proxylineStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{proxylineStatus}</div>}
       </Panel>
       <Panel title="App lock">
-        <div className="mb-4 rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
-          <div className="text-xs text-gray-500">Status</div>
-          <div className="mt-1 text-lg font-semibold">{appLock.enabled ? "Enabled" : "Disabled"}</div>
-        </div>
-        <Field label="Available methods" value={[appLock.pinEnabled ? "PIN code" : undefined, appLock.biometricEnabled ? "Fingerprint" : undefined].filter(Boolean).join(" + ") || "Not configured"} />
-        <Field label="Biometric device" value={biometricAvailable === undefined ? "Checking..." : biometricAvailable ? "Available" : "Not available"} />
         <div className="space-y-3">
-          <SelectInput
-            label="Unlock with"
-            value={appLock.defaultMethod}
-            onChange={(value) => {
-              setAppLock((current) => ({ ...current, defaultMethod: value as AppUnlockMethod }));
-              setSecurityStatus(undefined);
-            }}
-            options={[
-              { value: "pin", label: "PIN code" },
-              ...(biometricAvailable ? [{ value: "biometric", label: "Fingerprint" }] : [])
-            ]}
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <CheckboxInput label="Allow PIN code" checked={Boolean(appLock.pinEnabled)} onChange={(value) => saveAppLock({ ...appLock, pinEnabled: value, enabled: value || Boolean(appLock.biometricEnabled) })} />
-            <CheckboxInput label="Allow fingerprint" checked={Boolean(appLock.biometricEnabled)} onChange={(value) => saveAppLock({ ...appLock, biometricEnabled: value, enabled: value || Boolean(appLock.pinEnabled) })} />
-          </div>
-          {appLock.pinEnabled && (
-            <div className="grid grid-cols-2 gap-3">
-              <TextInput label="New PIN" value={newPin} onChange={setNewPin} type="password" />
-              <TextInput label="Repeat PIN" value={confirmPin} onChange={setConfirmPin} type="password" />
+          <SecurityMethodCard
+            icon={<Fingerprint size={18} />}
+            title="Fingerprint recognition (Windows Hello)"
+            description="Sign in with Windows Hello on this device"
+            enabled={Boolean(appLock.biometricEnabled)}
+            expanded={Boolean(appLock.biometricEnabled)}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-gray-500">{appLock.biometricCredentialId ? "Configured on this device" : "Not configured"}</span>
+              <div className="flex gap-2">
+                <Button disabled={!biometricAvailable} onClick={() => void setupBiometric()}>{appLock.biometricCredentialId ? "Add fingerprint" : "Set up"}</Button>
+                {appLock.biometricEnabled && <Button onClick={() => saveAppLock({ ...appLock, biometricEnabled: false, enabled: Boolean(appLock.pinEnabled) })}>Remove</Button>}
+              </div>
             </div>
-          )}
-          <div className="flex justify-end gap-2">
-            {appLock.enabled && <Button onClick={disableAppLock}>Disable lock</Button>}
-            {appLock.pinEnabled && <Button variant="primary" onClick={() => void savePin()}>Save PIN</Button>}
-            {appLock.biometricEnabled && <Button variant="primary" disabled={!biometricAvailable} onClick={() => void setupBiometric()}>Set up fingerprint</Button>}
+          </SecurityMethodCard>
+          <SecurityMethodCard
+            icon={<KeyRound size={18} />}
+            title="PIN code (Windows Hello)"
+            description="Windows Hello can offer system PIN during unlock"
+            enabled={Boolean(appLock.pinEnabled)}
+            expanded={Boolean(appLock.pinEnabled)}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-gray-500">{appLock.pinHash ? "Local fallback PIN configured" : "Optional local fallback"}</span>
+              <div className="flex gap-2">
+                <Button onClick={() => saveAppLock({ ...appLock, pinEnabled: true, enabled: true })}>{appLock.pinHash ? "Change PIN" : "Enable PIN"}</Button>
+                {appLock.pinEnabled && <Button onClick={() => saveAppLock({ ...appLock, pinEnabled: false, enabled: Boolean(appLock.biometricEnabled), pinHash: undefined, pinSalt: undefined })}>Remove</Button>}
+              </div>
+            </div>
+            {appLock.pinEnabled && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <TextInput label="New PIN" value={newPin} onChange={setNewPin} type="password" />
+                <TextInput label="Repeat PIN" value={confirmPin} onChange={setConfirmPin} type="password" />
+                <div className="col-span-2 flex justify-end"><Button variant="primary" onClick={() => void savePin()}>Save PIN</Button></div>
+              </div>
+            )}
+          </SecurityMethodCard>
+          <div className="flex items-center justify-between rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
+            <div>
+              <div className="font-medium">App protection</div>
+              <div className="text-sm text-gray-500">{appLock.enabled ? "Enabled" : "Disabled"}</div>
+            </div>
+            {appLock.enabled ? <Button onClick={disableAppLock}>Disable</Button> : <Button variant="primary" disabled={!appLock.biometricCredentialId && !appLock.pinHash} onClick={() => saveAppLock({ ...appLock, enabled: true })}>Enable</Button>}
           </div>
         </div>
         {securityStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{securityStatus}</div>}
@@ -2077,16 +2094,22 @@ async function verifyBiometricCredential(credentialId: string) {
   return Boolean(credential);
 }
 
-function AppLockScreen({ onUnlock }: { onUnlock: () => void }) {
+function AppLockGate({ onUnlock }: { onUnlock: () => void }) {
   const settings = getAppLockSettings();
+  const [status, setStatus] = useState("Waiting for Windows Hello...");
   const [pin, setPin] = useState("");
-  const [status, setStatus] = useState<string>();
+
+  const unlockWithSystem = async () => {
+    try {
+      if (!settings.biometricCredentialId) throw new Error("Windows Hello is not configured for this app.");
+      if (await verifyBiometricCredential(settings.biometricCredentialId)) onUnlock();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Windows Hello unlock failed.");
+    }
+  };
 
   const unlockWithPin = async () => {
-    if (!settings.pinSalt || !settings.pinHash) {
-      setStatus("PIN is not configured.");
-      return;
-    }
+    if (!settings.pinSalt || !settings.pinHash) return;
     const pinHash = await hashPin(pin, settings.pinSalt);
     if (pinHash !== settings.pinHash) {
       setStatus("Incorrect PIN.");
@@ -2095,61 +2118,54 @@ function AppLockScreen({ onUnlock }: { onUnlock: () => void }) {
     onUnlock();
   };
 
-  const unlockWithBiometric = async () => {
-    try {
-      if (!settings.biometricCredentialId) throw new Error("Fingerprint is not configured.");
-      if (await verifyBiometricCredential(settings.biometricCredentialId)) onUnlock();
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Fingerprint unlock failed.");
-    }
-  };
-
   useEffect(() => {
-    if (settings.defaultMethod === "biometric" && settings.biometricEnabled && settings.biometricCredentialId) {
-      void unlockWithBiometric();
-    }
+    if (settings.biometricCredentialId) void unlockWithSystem();
   }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-panel p-6 text-ink dark:bg-[#111315] dark:text-white">
-      <div className="w-full max-w-sm rounded-lg border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
-        <h1 className="text-xl font-semibold">Unlock ProfileX</h1>
-        <p className="mt-1 text-sm text-gray-500">Choose any configured method to continue.</p>
+      <div className="w-full max-w-sm rounded-lg border border-line bg-white p-6 text-center shadow-soft dark:border-white/10 dark:bg-[#17191c]">
+        <h1 className="text-xl font-semibold">ProfileX is locked</h1>
+        <p className="mt-2 text-sm text-gray-500">{status}</p>
         <div className="mt-5 space-y-3">
-          {settings.biometricEnabled && settings.biometricCredentialId && (
-            <Button className="w-full justify-center" variant={settings.defaultMethod === "biometric" ? "primary" : "secondary"} onClick={() => void unlockWithBiometric()}>Use fingerprint</Button>
-          )}
-          {settings.pinEnabled && (
+          {settings.biometricCredentialId && <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithSystem()}>Open Windows Hello</Button>}
+          {!settings.biometricCredentialId && settings.pinHash && (
             <>
               <TextInput label="PIN code" value={pin} onChange={setPin} type="password" autoFocus />
-              <Button className="w-full justify-center" variant={settings.defaultMethod === "pin" ? "primary" : "secondary"} onClick={() => void unlockWithPin()}>Use PIN code</Button>
+              <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithPin()}>Unlock</Button>
             </>
           )}
         </div>
-        {status && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{status}</div>}
       </div>
     </div>
   );
 }
 
-type ThemeMode = "light" | "dark";
-
-const THEME_STORAGE_KEY = "profilex.theme";
-
-function getInitialTheme(): ThemeMode {
-  const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (saved === "light" || saved === "dark") return saved;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+function SecurityMethodCard({ icon, title, description, enabled, expanded, children }: { icon: React.ReactNode; title: string; description: string; enabled: boolean; expanded: boolean; children: React.ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-xl bg-gray-50 dark:bg-[#202328]">
+      <div className="flex items-center justify-between gap-3 p-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-white p-2 dark:bg-[#17191c]">{icon}</div>
+          <div>
+            <div className="font-medium">{title}</div>
+            <div className="text-sm text-gray-500">{description}</div>
+          </div>
+        </div>
+        <span className={`rounded-lg px-2 py-1 text-xs ${enabled ? "bg-emerald-500/10 text-emerald-600" : "bg-gray-200 text-gray-500 dark:bg-white/10"}`}>{enabled ? "Enabled" : "Off"}</span>
+      </div>
+      {expanded && <div className="border-t border-line p-4 dark:border-white/10">{children}</div>}
+    </div>
+  );
 }
 
-function applyTheme(theme: ThemeMode) {
-  document.documentElement.classList.toggle("dark", theme === "dark");
+
+function GoogleIcon() {
+  return <span className="text-lg font-semibold text-blue-500">G</span>;
 }
 
-function useTheme() {
-  useEffect(() => {
-    applyTheme(getInitialTheme());
-  }, []);
+function TelegramIcon() {
+  return <span className="text-lg text-sky-500">?</span>;
 }
 
 function LoginPage() {
@@ -2169,8 +2185,8 @@ function LoginPage() {
       </div>
       <div className="my-5 flex items-center gap-3 text-xs text-gray-400"><span className="h-px flex-1 bg-line dark:bg-white/10" />or continue with<span className="h-px flex-1 bg-line dark:bg-white/10" /></div>
       <div className="grid grid-cols-2 gap-3">
-        <Button className="justify-center">Google</Button>
-        <Button className="justify-center">Telegram</Button>
+        <Button className="justify-center" title="Google"><GoogleIcon /></Button>
+        <Button className="justify-center" title="Telegram"><TelegramIcon /></Button>
       </div>
     </div>
   );
