@@ -252,10 +252,12 @@ export function createRoutes(db: AppDatabase) {
 function resolveLaunchProxy(db: AppDatabase, proxyId?: string, protocol: ProxySettings["protocol"] = "http", browserEngine = "chromium"): ProxySettings | undefined {
   const proxy = getProxy(db, proxyId);
   if (!proxy) return undefined;
+  if (browserEngine === "firefox" && protocol === "socks5" && proxy.httpPort) {
+    return { ...proxy, protocol: "http", port: proxy.httpPort };
+  }
   const port = protocol === "socks5" ? proxy.socks5Port : proxy.httpPort;
   if (!port) throw new Error(`${protocol.toUpperCase()} port is not configured for this proxy.`);
-  const resolved = { ...proxy, protocol, port };
-  return resolved;
+  return { ...proxy, protocol, port };
 }
 function syncProfileRuntimeStatuses(db: AppDatabase) {
   const runningIds = new Set(listRunningProfiles().map((profile) => profile.id));

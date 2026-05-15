@@ -1508,6 +1508,21 @@ function GroupsPage() {
   );
 }
 
+function RemovableChipLine({ empty, items, onRemove }: { empty: string; items: Array<{ id: string; label: string }>; onRemove: (id: string) => void }) {
+  return (
+    <div className="min-w-0">
+      <div className="flex flex-wrap gap-1.5">
+        {items.length ? items.map((item) => (
+          <span key={item.id} className="inline-flex max-w-36 items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">
+            <span className="truncate">{item.label}</span>
+            <button className="text-gray-400 hover:text-rose-500" onClick={() => onRemove(item.id)}><X size={11} /></button>
+          </span>
+        )) : <span className="text-xs text-gray-500 dark:text-gray-400">{empty}</span>}
+      </div>
+    </div>
+  );
+}
+
 function ChipLine({ values, empty }: { values: string[]; empty: string }) {
   return (
     <div className="min-w-0">

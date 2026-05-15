@@ -17,6 +17,14 @@ const items = [
   ["Recovery", ListChecks]
 ] as const;
 
+function ProfileXLogo() {
+  return (
+    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-ink text-sm font-bold text-white shadow-soft dark:bg-white dark:text-ink">
+      PX
+    </div>
+  );
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const activePage = useWorkspaceStore((state) => state.activePage);
   const setActivePage = useWorkspaceStore((state) => state.setActivePage);
@@ -32,41 +40,40 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-panel text-ink dark:bg-[#111315] dark:text-white">
-      <aside className={clsx("border-r border-line bg-white/80 px-3 py-4 backdrop-blur-xl transition-all dark:border-white/10 dark:bg-[#17191c]", isCollapsed ? "w-16" : "w-52")}>
-        <div className={clsx("mb-7 flex items-start", isCollapsed ? "justify-center" : "justify-between px-2")}>
-          {!isCollapsed && (
-            <div>
-              <div className="text-lg font-semibold">ProfileX</div>
-              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Browser profiles</div>
-            </div>
-          )}
+      <aside className={clsx("flex border-r border-line bg-white/80 px-3 py-4 backdrop-blur-xl transition-all dark:border-white/10 dark:bg-[#17191c]", isCollapsed ? "w-16" : "w-52")}>
+        <div className="flex min-h-full w-full flex-col">
+          <div className={clsx("mb-7 flex items-center", isCollapsed ? "justify-center" : "gap-3 px-2")}>
+            <ProfileXLogo />
+            {!isCollapsed && <div className="text-sm text-gray-500 dark:text-gray-400">Browser profiles</div>}
+          </div>
+          <nav className="space-y-1">
+            {items.map(([label, Icon]) => (
+              <button
+                key={label}
+                onClick={() => setActivePage(label)}
+                title={label}
+                className={clsx(
+                  "flex h-10 w-full items-center rounded-lg text-sm transition",
+                  isCollapsed ? "justify-center px-0" : "gap-3 px-3 text-left",
+                  activePage === label
+                    ? "bg-ink text-white shadow-soft dark:bg-white dark:text-ink"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
+                )}
+              >
+                <Icon size={17} />
+                {!isCollapsed && label}
+              </button>
+            ))}
+          </nav>
           <button
             onClick={toggleSidebar}
-            className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
+            className={clsx("mt-auto flex h-10 items-center rounded-lg text-gray-500 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10", isCollapsed ? "justify-center" : "gap-3 px-3")}
             title={isCollapsed ? "Expand menu" : "Collapse menu"}
           >
             {isCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            {!isCollapsed && "Collapse menu"}
           </button>
         </div>
-        <nav className="space-y-1">
-          {items.map(([label, Icon]) => (
-            <button
-              key={label}
-              onClick={() => setActivePage(label)}
-              title={label}
-              className={clsx(
-                "flex h-10 w-full items-center rounded-lg text-sm transition",
-                isCollapsed ? "justify-center px-0" : "gap-3 px-3 text-left",
-                activePage === label
-                  ? "bg-ink text-white shadow-soft dark:bg-white dark:text-ink"
-                  : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
-              )}
-            >
-              <Icon size={17} />
-              {!isCollapsed && label}
-            </button>
-          ))}
-        </nav>
       </aside>
       <main className="flex-1 overflow-hidden">
         <div className="flex h-14 items-center justify-between border-b border-line bg-white/70 px-6 backdrop-blur-xl dark:border-white/10 dark:bg-[#17191c]/95">
