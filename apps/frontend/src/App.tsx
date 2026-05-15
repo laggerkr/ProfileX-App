@@ -89,6 +89,8 @@ function Profiles() {
   const { profiles, proxies, createProfile, updateProfile, deleteProfile, launchProfile, stopProfile, cloneProfile, archiveProfile } = useWorkspaceStore();
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<BrowserProfile>();
+  const [editingNotesProfile, setEditingNotesProfile] = useState<BrowserProfile>();
+  const [editingTagsProfile, setEditingTagsProfile] = useState<BrowserProfile>();
   const [teamGroups, setTeamGroups] = useState<Array<{ value: string; label: string }>>([{ value: "Default", label: "Default" }]);
   const proxyById = useMemo(() => new Map(proxies.map((proxy) => [proxy.id, proxy])), [proxies]);
   useEffect(() => {
@@ -130,6 +132,26 @@ function Profiles() {
           }}
         />
       )}
+      {editingNotesProfile && (
+        <InlineProfileNotesDialog
+          profile={editingNotesProfile}
+          onClose={() => setEditingNotesProfile(undefined)}
+          onSave={async (notes) => {
+            await updateProfile(editingNotesProfile.id, { notes });
+            setEditingNotesProfile(undefined);
+          }}
+        />
+      )}
+      {editingTagsProfile && (
+        <InlineProfileTagsDialog
+          profile={editingTagsProfile}
+          onClose={() => setEditingTagsProfile(undefined)}
+          onSave={async (tags) => {
+            await updateProfile(editingTagsProfile.id, { tags });
+            setEditingTagsProfile(undefined);
+          }}
+        />
+      )}
       <div className="overflow-hidden rounded-lg border border-line bg-white dark:border-white/10 dark:bg-[#17191c]">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-[#202328]">
@@ -152,13 +174,21 @@ function Profiles() {
                   <div className="text-xs text-gray-500">{profile.operatingSystem ?? "windows"}</div>
                 </td>
                 <td className="px-4 py-3">{profile.group}</td>
-                <td className="max-w-[180px] truncate px-4 py-3 text-gray-500">{profile.notes || "-"}</td>
                 <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1">
-                    {profile.tags.length ? profile.tags.map((tag) => (
-                      <span key={tag} className="rounded-lg bg-brand/10 px-2 py-1 text-xs text-brand">{tag}</span>
-                    )) : <span className="text-gray-400">-</span>}
-                  </div>
+                  <button className="group flex max-w-[180px] items-center gap-2 text-left" onClick={() => setEditingNotesProfile(profile)}>
+                    <span className="truncate text-gray-500">{profile.notes || "-"}</span>
+                    <Pencil size={13} className="shrink-0 text-gray-400 opacity-0 transition group-hover:opacity-100" />
+                  </button>
+                </td>
+                <td className="px-4 py-3">
+                  <button className="group flex items-center gap-2 text-left" onClick={() => setEditingTagsProfile(profile)}>
+                    <span className="flex flex-wrap gap-1">
+                      {profile.tags.length ? profile.tags.map((tag) => (
+                        <span key={tag} className="rounded-lg bg-brand/10 px-2 py-1 text-xs text-brand">{tag}</span>
+                      )) : <span className="text-gray-400">-</span>}
+                    </span>
+                    <Pencil size={13} className="shrink-0 text-gray-400 opacity-0 transition group-hover:opacity-100" />
+                  </button>
                 </td>
                 <td className="px-4 py-3">
                   <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">
@@ -213,6 +243,78 @@ function Profiles() {
         </table>
       </div>
     </section>
+  );
+}
+
+function InlineProfileNotesDialog({
+  profile,
+  onClose,
+  onSave
+}: {
+  profile: BrowserProfile;
+  onClose: () => void;
+  onSave: (notes?: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState(profile.notes ?? "");
+  return (
+    <InlineProfileEditDialog title={`Notes ? ${profile.name}`} onClose={onClose} onSave={() => onSave(value.trim() || undefined)}>
+      <TextArea label="Notes" value={value} onChange={setValue} placeholder="Add notes" />
+    </InlineProfileEditDialog>
+  );
+}
+
+function InlineProfileTagsDialog({
+  profile,
+  onClose,
+  onSave
+}: {
+  profile: BrowserProfile;
+  onClose: () => void;
+  onSave: (tags: string[]) => Promise<void>;
+}) {
+  const [value, setValue] = useState(profile.tags.join(", "));
+  return (
+    <InlineProfileEditDialog title={`Tags ? ${profile.name}`} onClose={onClose} onSave={() => onSave(splitList(value))}>
+      <TextInput label="Tags" value={value} onChange={setValue} placeholder="LV, WT-Admin, support" autoFocus />
+    </InlineProfileEditDialog>
+  );
+}
+
+function InlineProfileEditDialog({
+  title,
+  children,
+  onClose,
+  onSave
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+  onSave: () => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-lg border border-line bg-white p-5 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold">{title}</h2>
+          <Button variant="ghost" icon={<X size={17} />} onClick={onClose} />
+        </div>
+        {children}
+        <div className="mt-4 flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            disabled={saving}
+            onClick={() => {
+              setSaving(true);
+              void onSave().finally(() => setSaving(false));
+            }}
+          >
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
