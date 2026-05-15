@@ -447,6 +447,7 @@ function ProxyManager() {
   const [selectedProxyIds, setSelectedProxyIds] = useState<string[]>([]);
   const [proxylineImporting, setProxylineImporting] = useState(false);
   const [proxylineImportStatus, setProxylineImportStatus] = useState<string>();
+  const [checkingAllProxies, setCheckingAllProxies] = useState(false);
   const [form, setForm] = useState({
     name: "",
     protocol: "http" as ProxySettings["protocol"],
@@ -544,11 +545,21 @@ function ProxyManager() {
     try {
       const result = await api.importProxylineProxies();
       await refresh();
-      setProxylineImportStatus(`Imported ${result.importedCount} new proxies from Proxyline.`);
+      setProxylineImportStatus(`Imported ${result.importedCount} new proxies and updated ${result.updatedCount} existing proxies from Proxyline.`);
     } catch (error) {
       setProxylineImportStatus(error instanceof Error ? error.message : "Proxyline import failed.");
     } finally {
       setProxylineImporting(false);
+    }
+  };
+
+  const checkAllProxies = async () => {
+    setCheckingAllProxies(true);
+    try {
+      await api.checkAllProxies();
+      await refresh();
+    } finally {
+      setCheckingAllProxies(false);
     }
   };
 
@@ -590,6 +601,9 @@ function ProxyManager() {
             onChange={(event) => void loadImportFile(event.target.files?.[0])}
           />
           <Button variant="primary" icon={<Plus size={16} />} onClick={openProxyCreate}>Add proxy</Button>
+          <Button icon={<RefreshCcw size={16} />} disabled={checkingAllProxies} onClick={() => void checkAllProxies()}>
+            {checkingAllProxies ? "Checking..." : "Check all"}
+          </Button>
           <Button icon={<RefreshCcw size={16} />} disabled={proxylineImporting} onClick={() => void importFromProxyline()}>
             {proxylineImporting ? "Importing..." : "Import from Proxyline"}
           </Button>

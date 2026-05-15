@@ -100,6 +100,13 @@ export function createRoutes(db: AppDatabase) {
       return next(error);
     }
   });
+  router.post("/proxies/check-all", async (_req, res) => {
+    const checked = [];
+    for (const proxy of listProxies(db)) {
+      checked.push(await checkProxy(db, proxy.id));
+    }
+    return res.json({ data: { checked, checkedCount: checked.length } });
+  });
   router.post("/proxies/:id/check", async (req, res) => res.json({ data: await checkProxy(db, req.params.id) }));
   router.post("/proxies/:id/detect-country", async (req, res) => {
     const proxy = await detectProxyCountry(db, req.params.id);

@@ -1,27 +1,111 @@
+import type { ProxySettings } from "@profilex/shared";
 import type { AppDatabase } from "../database/db.js";
-import { importProxyLines } from "./proxyService.js";
+import { createProxy, listProxies, updateProxy } from "./proxyService.js";
 import { getProxylineSettings } from "./settingsService.js";
 
 const PROXYLINE_PROXIES_URL = "https://panel.proxyline.net/api/proxies/";
+
+type ProxylineProxy = {
+  ip?: string;
+  host?: string;
+  port_http?: number | string;
+  http_port?: number | string;
+  port_socks5?: number | string;
+  socks5_port?: number | string;
+  username?: string;
+  login?: string;
+  password?: string;
+  pass?: string;
+  country?: string;
+  country_code?: string;
+  tags?: unknown;
+};
 
 export async function importProxylineProxies(db: AppDatabase) {
   const settings = getProxylineSettings(db, { includeApiKey: true });
   if (!settings.apiKey) throw new Error("Proxyline API key is not configured");
 
-  const [httpText, socks5Text] = await Promise.all([
-    fetchProxylineList(settings.apiKey, "txt-http"),
-    fetchProxylineList(settings.apiKey, "txt-socks5")
-  ]);
-  const imported = importProxyLines(db, [httpText, socks5Text].filter(Boolean).join("\n"));
-  return { imported, importedCount: imported.length };
+  const items = await fetchProxylineList(settings.apiKey);
+  const existing = listProxies(db);
+  const imported: ProxySettings[] = [];
+  let updatedCount = 0;
+
+  for (const item of items) {
+    const candidates = mapProxylineProxy(item);
+    for (const candidate of candidates) {
+      const current = existing.find((proxy) => sameProxy(proxy, candidate));
+      if (current) {
+        if (current.name !== candidate.name || current.group !== candidate.group) {
+          updateProxy(db, current.id, { name: candidate.name, group: candidate.group });
+          updatedCount += 1;
+        }
+        continue;
+      }
+      imported.push(createProxy(db, candidate));
+    }
+  }
+
+  return { imported, importedCount: imported.length, updatedCount };
 }
 
-async function fetchProxylineList(apiKey: string, format: "txt-http" | "txt-socks5") {
+async function fetchProxylineList(apiKey: string): Promise<ProxylineProxy[]> {
   const url = new URL(PROXYLINE_PROXIES_URL);
   url.searchParams.set("status", "active");
-  url.searchParams.set("format", format);
   url.searchParams.set("limit", "2000");
   const response = await fetch(url, { headers: { "API-KEY": apiKey } });
   if (!response.ok) throw new Error(`Proxyline request failed with status ${response.status}`);
-  return response.text();
+  const body = await response.json();
+  if (Array.isArray(body)) return body;
+  if (Array.isArray(body?.results)) return body.results;
+  throw new Error("Proxyline returned an unexpected proxies payload");
+}
+
+function mapProxylineProxy(item: ProxylineProxy): Array<Omit<ProxySettings, "id" | "status">> {
+  const host = item.ip ?? item.host;
+  if (!host) return [];
+  const username = item.username ?? item.login;
+  const password = item.password ?? item.pass;
+  const countryCode = (item.country_code ?? item.country)?.toUpperCase();
+  const baseName = proxylineName(item.tags);
+  const candidates: Array<Omit<ProxySettings, "id" | "status">> = [];
+  const append = (protocol: ProxySettings["protocol"], rawPort: number | string | undefined) => {
+    const port = Number(rawPort);
+    if (!Number.isFinite(port)) return;
+    candidates.push({
+      name: baseName || `${protocol.toUpperCase()} ${host}:${port}`,
+      protocol,
+      host,
+      port,
+      username,
+      password,
+      group: "Proxyline",
+      countryCode
+    });
+  };
+  append("http", item.port_http ?? item.http_port);
+  append("socks5", item.port_socks5 ?? item.socks5_port);
+  return candidates;
+}
+
+function proxylineName(tags: unknown) {
+  if (!Array.isArray(tags)) return undefined;
+  const names = tags
+    .map((tag) => {
+      if (typeof tag === "string") return tag.trim();
+      if (tag && typeof tag === "object") {
+        const record = tag as Record<string, unknown>;
+        const value = record.name ?? record.title ?? record.label;
+        return typeof value === "string" ? value.trim() : "";
+      }
+      return "";
+    })
+    .filter(Boolean);
+  return names.length ? names.join(", ") : undefined;
+}
+
+function sameProxy(proxy: ProxySettings, candidate: Omit<ProxySettings, "id" | "status">) {
+  return proxy.protocol === candidate.protocol &&
+    proxy.host === candidate.host &&
+    proxy.port === candidate.port &&
+    (proxy.username ?? "") === (candidate.username ?? "");
 }
