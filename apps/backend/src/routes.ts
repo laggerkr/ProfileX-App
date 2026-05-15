@@ -103,7 +103,13 @@ export function createRoutes(db: AppDatabase) {
   router.post("/proxies/check-all", async (_req, res) => {
     const proxies = listProxies(db);
     const checked = await mapWithConcurrency(proxies, 8, (proxy) => checkProxy(db, proxy.id, { detectCountry: false }));
-    return res.json({ data: { checked, checkedCount: checked.length } });
+    const proxiesMissingCountry = checked.filter((proxy) => proxy && !proxy.country);
+    await mapWithConcurrency(proxiesMissingCountry, 4, async (proxy) => {
+      if (!proxy) return undefined;
+      return detectProxyCountry(db, proxy.id).catch(() => undefined);
+    });
+    const refreshed = listProxies(db);
+    return res.json({ data: { checked: refreshed, checkedCount: refreshed.length } });
   });
   router.post("/proxies/:id/check", async (req, res) => res.json({ data: await checkProxy(db, req.params.id) }));
   router.post("/proxies/:id/detect-country", async (req, res) => {
