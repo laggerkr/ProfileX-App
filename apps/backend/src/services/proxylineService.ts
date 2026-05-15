@@ -4,6 +4,7 @@ import { createProxy, listProxies, updateProxy } from "./proxyService.js";
 import { getProxylineSettings } from "./settingsService.js";
 
 const PROXYLINE_PROXIES_URL = "https://panel.proxyline.net/api/proxies/";
+const PROXYLINE_BALANCE_URL = "https://panel.proxyline.net/api/balance/";
 
 type ProxylineProxy = {
   ip?: string;
@@ -107,4 +108,23 @@ function proxylineName(tags: unknown) {
 
 function sameProxy(proxy: ProxySettings, candidate: Omit<ProxySettings, "id" | "status">) {
   return proxy.host === candidate.host && (proxy.username ?? "") === (candidate.username ?? "");
+}
+
+
+export async function getProxylineAccountSummary(db: AppDatabase) {
+  const settings = getProxylineSettings(db, { includeApiKey: true });
+  if (!settings.apiKey) return settings;
+  try {
+    const response = await fetch(PROXYLINE_BALANCE_URL, { headers: { "API-KEY": settings.apiKey } });
+    if (!response.ok) return { ...settings, apiKey: undefined };
+    const body = await response.json() as Record<string, unknown>;
+    return {
+      ...settings,
+      apiKey: undefined,
+      balance: numberOrUndefined(body.balance as number | string | undefined),
+      partnerBalance: numberOrUndefined((body.partner_balance ?? body.partnerBalance) as number | string | undefined)
+    };
+  } catch {
+    return { ...settings, apiKey: undefined };
+  }
 }

@@ -8,9 +8,9 @@ import { realisticFingerprintPreset } from "./services/fingerprintService.js";
 import { logActivity } from "./services/activityService.js";
 import { getPythonWorkerStatus, runPythonPageCheck, runPythonProxyCheck } from "./services/pythonWorkerService.js";
 import { acceptTeamInvitation, assignProfileGroup, createTeamGroup, createTeamMember, deleteTeamGroup, deleteTeamMember, getTeamWorkspace, resendTeamInvitation, updateTeamGroup, updateTeamMember } from "./services/teamService.js";
-import { getProxylineSettings, getSmtpSettings, updateProxylineSettings, updateSmtpSettings } from "./services/settingsService.js";
+import { deleteProxylineSettings, getProxylineSettings, getSmtpSettings, updateProxylineSettings, updateSmtpSettings } from "./services/settingsService.js";
 import { sendInvitationEmail, testSmtpSettings } from "./services/smtpService.js";
-import { importProxylineProxies } from "./services/proxylineService.js";
+import { getProxylineAccountSummary, importProxylineProxies } from "./services/proxylineService.js";
 import type { ProxySettings } from "@profilex/shared";
 
 export function createRoutes(db: AppDatabase) {
@@ -193,8 +193,15 @@ export function createRoutes(db: AppDatabase) {
 
   router.get("/settings/smtp", (_req, res) => res.json({ data: getSmtpSettings(db) }));
   router.patch("/settings/smtp", (req, res) => res.json({ data: updateSmtpSettings(db, req.body) }));
-  router.get("/settings/proxyline", (_req, res) => res.json({ data: getProxylineSettings(db) }));
+  router.get("/settings/proxyline", async (_req, res, next) => {
+    try {
+      return res.json({ data: await getProxylineAccountSummary(db) });
+    } catch (error) {
+      return next(error);
+    }
+  });
   router.patch("/settings/proxyline", (req, res) => res.json({ data: updateProxylineSettings(db, req.body) }));
+  router.delete("/settings/proxyline", (_req, res) => res.json({ data: deleteProxylineSettings(db) }));
   router.post("/settings/smtp/test", async (req, res, next) => {
     try {
       const settings = { ...getSmtpSettings(db, { includePassword: true }), ...req.body };

@@ -60,9 +60,11 @@ export function getProxylineSettings(db: AppDatabase, options: { includeApiKey?:
   const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(PROXYLINE_SETTINGS_KEY);
   if (!row) return {};
   const parsed = JSON.parse(String(row.value));
+  const apiKey = parsed.apiKeyEncrypted ? decryptSecret(parsed.apiKeyEncrypted) : undefined;
   return {
-    apiKey: options.includeApiKey ? decryptSecret(parsed.apiKeyEncrypted) : undefined,
-    hasApiKey: Boolean(parsed.apiKeyEncrypted)
+    apiKey: options.includeApiKey ? apiKey : undefined,
+    hasApiKey: Boolean(apiKey),
+    keySuffix: apiKey ? apiKey.slice(-4) : undefined
   };
 }
 
@@ -80,4 +82,9 @@ function getRawProxylineSettings(db: AppDatabase) {
   const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(PROXYLINE_SETTINGS_KEY);
   if (!row) return { apiKeyEncrypted: undefined };
   return JSON.parse(String(row.value));
+}
+
+export function deleteProxylineSettings(db: AppDatabase) {
+  db.prepare("DELETE FROM app_settings WHERE key = ?").run(PROXYLINE_SETTINGS_KEY);
+  return {} as ProxylineSettings;
 }

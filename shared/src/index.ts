@@ -130,6 +130,9 @@ export interface SmtpSettings {
 export interface ProxylineSettings {
   apiKey?: string;
   hasApiKey?: boolean;
+  keySuffix?: string;
+  balance?: number;
+  partnerBalance?: number;
 }
 
 export interface TeamWorkspaceData {

@@ -44,12 +44,15 @@ function Dashboard() {
   const [browserStatus, setBrowserStatus] = useState<any>();
   const usage = dashboard?.usage ?? [];
   const maxLaunches = Math.max(1, ...usage.map((item) => item.launches));
+  const refreshDashboard = async () => {
+    await Promise.all([refresh(), api.browserStatus().then(setBrowserStatus)]);
+  };
   useEffect(() => { void api.browserStatus().then(setBrowserStatus); }, []);
   return (
     <section className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Overview</h1>
-        <Button icon={<RefreshCcw size={16} />} onClick={() => void refresh()}>Refresh</Button>
+        <Button icon={<RefreshCcw size={16} />} onClick={() => void refreshDashboard()}>Refresh</Button>
       </div>
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Profiles" value={dashboard?.profiles ?? 0} icon={<Database size={18} />} />
@@ -110,7 +113,9 @@ function Dashboard() {
 function Profiles() {
   const { profiles, proxies, createProfile, updateProfile, deleteProfile, launchProfile, stopProfile, cloneProfile } = useWorkspaceStore();
   const [isCreateOpen, setCreateOpen] = useState(false);
+  const [createStorageMode, setCreateStorageMode] = useState<BrowserProfile["storageMode"]>("device");
   const [editingProfile, setEditingProfile] = useState<BrowserProfile>();
+  const [cloningProfile, setCloningProfile] = useState<BrowserProfile>();
   const [editingNotesProfile, setEditingNotesProfile] = useState<BrowserProfile>();
   const [editingTagsProfile, setEditingTagsProfile] = useState<BrowserProfile>();
   const [teamGroups, setTeamGroups] = useState<Array<{ value: string; label: string }>>([{ value: "Default", label: "Default" }]);
@@ -127,11 +132,15 @@ function Profiles() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Profiles</h1>
-        <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreateOpen(true)}>New profile</Button>
+        <div className="flex gap-2">
+          <Button icon={<Plus size={16} />} onClick={() => { setCreateStorageMode("device"); setCreateOpen(true); }}>New local profile</Button>
+          <Button variant="primary" icon={<Plus size={16} />} onClick={() => { setCreateStorageMode("cloud"); setCreateOpen(true); }}>New cloud profile</Button>
+        </div>
       </div>
       {isCreateOpen && (
         <ProfileEditorDialog
           mode="create"
+          initialStorageMode={createStorageMode}
           proxies={proxies}
           groupOptions={teamGroups}
           onClose={() => setCreateOpen(false)}
@@ -161,6 +170,17 @@ function Profiles() {
           onSave={async (notes) => {
             await updateProfile(editingNotesProfile.id, { notes });
             setEditingNotesProfile(undefined);
+          }}
+        />
+      )}
+      {cloningProfile && (
+        <CloneProfileToGroupDialog
+          profile={cloningProfile}
+          groupOptions={teamGroups}
+          onClose={() => setCloningProfile(undefined)}
+          onSave={async (group) => {
+            await createProfile({ ...cloningProfile, name: `${cloningProfile.name} Copy`, group });
+            setCloningProfile(undefined);
           }}
         />
       )}
@@ -239,6 +259,7 @@ function Profiles() {
                       />
                     )}
                     <Button icon={<Copy size={15} />} onClick={() => void cloneProfile(profile.id)} />
+                    <Button icon={<FolderKanban size={15} />} title="Clone to group" onClick={() => setCloningProfile(profile)} />
                     <Button icon={<Pencil size={15} />} onClick={() => setEditingProfile(profile)} />
                     <Button
                       icon={<Trash2 size={15} />}
@@ -265,6 +286,39 @@ function ProfileOsIcon({ operatingSystem }: { operatingSystem?: BrowserProfile["
   if (operatingSystem === "linux") return <Terminal size={16} />;
   if (operatingSystem === "android") return <Smartphone size={16} />;
   return <Monitor size={16} />;
+}
+
+function CloneProfileToGroupDialog({
+  profile,
+  groupOptions,
+  onClose,
+  onSave
+}: {
+  profile: BrowserProfile;
+  groupOptions: Array<{ value: string; label: string }>;
+  onClose: () => void;
+  onSave: (group: string) => Promise<void>;
+}) {
+  const [group, setGroup] = useState(profile.group);
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-lg border border-line bg-white p-5 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Clone to group</h2>
+            <p className="text-sm text-gray-500">Create a copy of {profile.name} in another group.</p>
+          </div>
+          <Button variant="ghost" icon={<X size={17} />} onClick={onClose} />
+        </div>
+        <SelectInput label="Target group" value={group} onChange={setGroup} options={groupOptions} />
+        <div className="mt-4 flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={saving} onClick={() => { setSaving(true); void onSave(group).finally(() => setSaving(false)); }}>{saving ? "Cloning..." : "Clone"}</Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function InlineProfileNotesDialog({
@@ -344,6 +398,7 @@ function ProfileEditorDialog({
   profile,
   proxies,
   groupOptions,
+  initialStorageMode,
   onClose,
   onSave
 }: {
@@ -351,6 +406,7 @@ function ProfileEditorDialog({
   profile?: BrowserProfile;
   proxies: ProxySettings[];
   groupOptions: Array<{ value: string; label: string }>;
+  initialStorageMode?: BrowserProfile["storageMode"];
   onClose: () => void;
   onSave: (profile: Partial<BrowserProfile>) => Promise<void>;
 }) {
@@ -367,7 +423,7 @@ function ProfileEditorDialog({
     tabBehavior: profile?.tabBehavior ?? "custom",
     operatingSystem: profile?.operatingSystem ?? "windows",
     browserEngine: profile?.browserEngine ?? "chromium",
-    storageMode: profile?.storageMode ?? "device",
+    storageMode: profile?.storageMode ?? initialStorageMode ?? "device",
     startupUrls: profile?.startupUrls.join("\n") ?? "https://browserleaks.com/ip",
     userAgent: profile?.fingerprint.userAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     timezoneMode: profile?.fingerprint.timezoneMode ?? "mask",
@@ -1290,7 +1346,7 @@ function Fingerprints() {
         <h1 className="text-2xl font-semibold">Fingerprints</h1>
         <Button variant="primary" icon={<RefreshCcw size={16} />} onClick={() => void generatePreset()}>Generate preset</Button>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4">
         <Panel title="Settings">
           <Field label="User agent" value={preset?.userAgent ?? "Chrome desktop preset"} />
           <Field label="Timezone" value={preset?.timezone ?? "Europe/Kyiv"} />
@@ -1745,6 +1801,13 @@ function Settings() {
     setProxylineStatus("Proxyline API key saved.");
   };
 
+  const deleteProxyline = async () => {
+    const saved = await api.deleteProxylineSettings();
+    setProxyline(saved);
+    setProxylineApiKey("");
+    setProxylineStatus("Proxyline integration removed.");
+  };
+
   const saveAppLock = (next: AppLockSettings) => {
     setAppLock(next);
     storeAppLockSettings(next);
@@ -1761,7 +1824,7 @@ function Settings() {
     }
     const salt = createRandomToken();
     const pinHash = await hashPin(newPin, salt);
-    saveAppLock({ ...appLock, enabled: true, method: "pin", pinSalt: salt, pinHash });
+    saveAppLock({ ...appLock, enabled: true, defaultMethod: appLock.defaultMethod ?? "pin", pinEnabled: true, pinSalt: salt, pinHash });
     setNewPin("");
     setConfirmPin("");
     setSecurityStatus("PIN lock enabled.");
@@ -1770,7 +1833,7 @@ function Settings() {
   const setupBiometric = async () => {
     try {
       const credentialId = await registerBiometricCredential();
-      saveAppLock({ ...appLock, enabled: true, method: "biometric", biometricCredentialId: credentialId });
+      saveAppLock({ ...appLock, enabled: true, biometricEnabled: true, biometricCredentialId: credentialId });
       setSecurityStatus("Fingerprint unlock enabled.");
     } catch (error) {
       setSecurityStatus(error instanceof Error ? error.message : "Could not enable fingerprint unlock.");
@@ -1778,7 +1841,7 @@ function Settings() {
   };
 
   const disableAppLock = () => {
-    saveAppLock({ enabled: false, method: "pin" });
+    saveAppLock({ enabled: false, defaultMethod: "pin" });
     setSecurityStatus("App lock disabled.");
   };
   return (
@@ -1821,6 +1884,11 @@ function Settings() {
       </Panel>
       <Panel title="Proxyline integration">
         <div className="space-y-3">
+          <div className="rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
+            <div className="text-xs text-gray-500">Connected account</div>
+            <div className="mt-1 font-medium">{proxyline.hasApiKey ? `API key ???? ${proxyline.keySuffix ?? ""}` : "Not connected"}</div>
+            {proxyline.balance !== undefined && <div className="mt-1 text-sm text-gray-500">Balance: {proxyline.balance}</div>}
+          </div>
           <TextInput
             label={proxyline.hasApiKey ? "API key (saved)" : "API key"}
             value={proxylineApiKey}
@@ -1831,22 +1899,26 @@ function Settings() {
             type="password"
           />
           <div className="text-sm text-gray-500 dark:text-gray-400">Used to import active HTTP and SOCKS5 proxies directly from Proxyline.</div>
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            {proxyline.hasApiKey && <Button onClick={() => void deleteProxyline()}>Remove integration</Button>}
             <Button variant="primary" onClick={() => void saveProxyline()}>Save Proxyline key</Button>
           </div>
         </div>
         {proxylineStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{proxylineStatus}</div>}
       </Panel>
       <Panel title="App lock">
-        <Field label="Status" value={appLock.enabled ? "Enabled" : "Disabled"} />
-        <Field label="Unlock method" value={appLock.method === "biometric" ? "Fingerprint" : "PIN code"} />
+        <div className="mb-4 rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
+          <div className="text-xs text-gray-500">Status</div>
+          <div className="mt-1 text-lg font-semibold">{appLock.enabled ? "Enabled" : "Disabled"}</div>
+        </div>
+        <Field label="Available methods" value={[appLock.pinEnabled ? "PIN code" : undefined, appLock.biometricEnabled ? "Fingerprint" : undefined].filter(Boolean).join(" + ") || "Not configured"} />
         <Field label="Biometric device" value={biometricAvailable === undefined ? "Checking..." : biometricAvailable ? "Available" : "Not available"} />
         <div className="space-y-3">
           <SelectInput
             label="Unlock with"
-            value={appLock.method}
+            value={appLock.defaultMethod}
             onChange={(value) => {
-              setAppLock((current) => ({ ...current, method: value as AppUnlockMethod }));
+              setAppLock((current) => ({ ...current, defaultMethod: value as AppUnlockMethod }));
               setSecurityStatus(undefined);
             }}
             options={[
@@ -1854,7 +1926,11 @@ function Settings() {
               ...(biometricAvailable ? [{ value: "biometric", label: "Fingerprint" }] : [])
             ]}
           />
-          {appLock.method === "pin" && (
+          <div className="grid grid-cols-2 gap-2">
+            <CheckboxInput label="Allow PIN code" checked={Boolean(appLock.pinEnabled)} onChange={(value) => saveAppLock({ ...appLock, pinEnabled: value, enabled: value || Boolean(appLock.biometricEnabled) })} />
+            <CheckboxInput label="Allow fingerprint" checked={Boolean(appLock.biometricEnabled)} onChange={(value) => saveAppLock({ ...appLock, biometricEnabled: value, enabled: value || Boolean(appLock.pinEnabled) })} />
+          </div>
+          {appLock.pinEnabled && (
             <div className="grid grid-cols-2 gap-3">
               <TextInput label="New PIN" value={newPin} onChange={setNewPin} type="password" />
               <TextInput label="Repeat PIN" value={confirmPin} onChange={setConfirmPin} type="password" />
@@ -1862,11 +1938,8 @@ function Settings() {
           )}
           <div className="flex justify-end gap-2">
             {appLock.enabled && <Button onClick={disableAppLock}>Disable lock</Button>}
-            {appLock.method === "pin" ? (
-              <Button variant="primary" onClick={() => void savePin()}>Save PIN</Button>
-            ) : (
-              <Button variant="primary" disabled={!biometricAvailable} onClick={() => void setupBiometric()}>Enable fingerprint</Button>
-            )}
+            {appLock.pinEnabled && <Button variant="primary" onClick={() => void savePin()}>Save PIN</Button>}
+            {appLock.biometricEnabled && <Button variant="primary" disabled={!biometricAvailable} onClick={() => void setupBiometric()}>Set up fingerprint</Button>}
           </div>
         </div>
         {securityStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{securityStatus}</div>}
@@ -1885,7 +1958,9 @@ function Settings() {
 type AppUnlockMethod = "pin" | "biometric";
 type AppLockSettings = {
   enabled: boolean;
-  method: AppUnlockMethod;
+  defaultMethod: AppUnlockMethod;
+  pinEnabled?: boolean;
+  biometricEnabled?: boolean;
   pinSalt?: string;
   pinHash?: string;
   biometricCredentialId?: string;
@@ -1896,10 +1971,17 @@ const APP_LOCK_STORAGE_KEY = "profilex.appLock";
 function getAppLockSettings(): AppLockSettings {
   try {
     const saved = window.localStorage.getItem(APP_LOCK_STORAGE_KEY);
-    if (!saved) return { enabled: false, method: "pin" };
-    return { enabled: false, method: "pin", ...JSON.parse(saved) };
+    if (!saved) return { enabled: false, defaultMethod: "pin" };
+    const parsed = JSON.parse(saved);
+    return {
+      enabled: false,
+      defaultMethod: parsed.defaultMethod ?? parsed.method ?? "pin",
+      pinEnabled: parsed.pinEnabled ?? Boolean(parsed.pinHash),
+      biometricEnabled: parsed.biometricEnabled ?? Boolean(parsed.biometricCredentialId),
+      ...parsed
+    };
   } catch {
-    return { enabled: false, method: "pin" };
+    return { enabled: false, defaultMethod: "pin" };
   }
 }
 
@@ -1987,19 +2069,26 @@ function AppLockScreen({ onUnlock }: { onUnlock: () => void }) {
     }
   };
 
+  useEffect(() => {
+    if (settings.defaultMethod === "biometric" && settings.biometricEnabled && settings.biometricCredentialId) {
+      void unlockWithBiometric();
+    }
+  }, []);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-panel p-6 text-ink dark:bg-[#111315] dark:text-white">
       <div className="w-full max-w-sm rounded-lg border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
         <h1 className="text-xl font-semibold">Unlock ProfileX</h1>
-        <p className="mt-1 text-sm text-gray-500">Use {settings.method === "biometric" ? "your fingerprint" : "your PIN code"} to continue.</p>
+        <p className="mt-1 text-sm text-gray-500">Choose any configured method to continue.</p>
         <div className="mt-5 space-y-3">
-          {settings.method === "pin" ? (
+          {settings.biometricEnabled && settings.biometricCredentialId && (
+            <Button className="w-full justify-center" variant={settings.defaultMethod === "biometric" ? "primary" : "secondary"} onClick={() => void unlockWithBiometric()}>Use fingerprint</Button>
+          )}
+          {settings.pinEnabled && (
             <>
               <TextInput label="PIN code" value={pin} onChange={setPin} type="password" autoFocus />
-              <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithPin()}>Unlock</Button>
+              <Button className="w-full justify-center" variant={settings.defaultMethod === "pin" ? "primary" : "secondary"} onClick={() => void unlockWithPin()}>Use PIN code</Button>
             </>
-          ) : (
-            <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithBiometric()}>Use fingerprint</Button>
           )}
         </div>
         {status && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{status}</div>}
