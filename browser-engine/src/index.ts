@@ -96,10 +96,10 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
 
   if (urls.length) {
     const existingPages = context.pages();
-    const firstPage = await context.newPage();
+    const firstPage = existingPages[0] ?? await context.newPage();
     await openStartupUrl(firstPage, urls[0]);
-    for (const page of existingPages) {
-      if (page !== firstPage) await page.close().catch(() => undefined);
+    for (const page of existingPages.slice(1)) {
+      await page.close().catch(() => undefined);
     }
     for (const url of urls.slice(1)) {
       const page = await context.newPage();

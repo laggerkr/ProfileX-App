@@ -669,8 +669,8 @@ function ProxyManager() {
               <th className="w-[16%] px-3 py-2">Host</th>
               <th className="w-[13%] px-3 py-2">Password</th>
               <th className="w-[11%] px-3 py-2">Country</th>
-              <th className="w-[12%] px-3 py-2">Status</th>
-              <th className="w-[16%] px-3 py-2 text-right">Actions</th>
+              <th className="w-[14%] px-3 py-2">Status</th>
+              <th className="w-[14%] px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -691,8 +691,10 @@ function ProxyManager() {
                 <td className="truncate px-3 py-2 font-mono text-xs">{proxy.password ?? (proxy.hasPassword ? "Saved" : "-")}</td>
                 <td className="truncate px-3 py-2">{proxy.country ?? "Unknown"}</td>
                 <td className="px-3 py-2">
-                  <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">{proxy.status}</span>
-                  <span className="ml-2 text-xs text-gray-400">{proxy.latencyMs ?? "-"} ms</span>
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">{proxy.status}</span>
+                    <span className="text-xs text-gray-400">{proxy.latencyMs ?? "-"} ms</span>
+                  </div>
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex justify-end gap-2">
