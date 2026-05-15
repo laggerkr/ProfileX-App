@@ -9,6 +9,7 @@ import { useWorkspaceStore } from "./store/useWorkspaceStore";
 
 export function App() {
   const { activePage, refresh } = useWorkspaceStore();
+  const [isLocked, setLocked] = useState(() => getAppLockSettings().enabled);
   useTheme();
 
   useEffect(() => {
@@ -16,6 +17,8 @@ export function App() {
     const interval = window.setInterval(() => void refresh(), 5000);
     return () => window.clearInterval(interval);
   }, [refresh]);
+
+  if (isLocked) return <AppLockScreen onUnlock={() => setLocked(false)} />;
 
   return (
     <Shell>
@@ -1693,7 +1696,10 @@ function Settings() {
   const [proxylineApiKey, setProxylineApiKey] = useState("");
   const [proxylineStatus, setProxylineStatus] = useState<string>();
   const [biometricAvailable, setBiometricAvailable] = useState<boolean>();
-  const [biometricEnabled, setBiometricEnabled] = useState(() => window.localStorage.getItem("profilex.biometricEnabled") === "true");
+  const [appLock, setAppLock] = useState<AppLockSettings>(() => getAppLockSettings());
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [securityStatus, setSecurityStatus] = useState<string>();
 
   useEffect(() => {
     void api.smtpSettings().then(setSmtp);
@@ -1739,9 +1745,41 @@ function Settings() {
     setProxylineStatus("Proxyline API key saved.");
   };
 
-  const updateBiometricEnabled = (value: boolean) => {
-    setBiometricEnabled(value);
-    window.localStorage.setItem("profilex.biometricEnabled", String(value));
+  const saveAppLock = (next: AppLockSettings) => {
+    setAppLock(next);
+    storeAppLockSettings(next);
+  };
+
+  const savePin = async () => {
+    if (!/^\d{4,8}$/.test(newPin)) {
+      setSecurityStatus("PIN must contain 4 to 8 digits.");
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setSecurityStatus("PIN confirmation does not match.");
+      return;
+    }
+    const salt = createRandomToken();
+    const pinHash = await hashPin(newPin, salt);
+    saveAppLock({ ...appLock, enabled: true, method: "pin", pinSalt: salt, pinHash });
+    setNewPin("");
+    setConfirmPin("");
+    setSecurityStatus("PIN lock enabled.");
+  };
+
+  const setupBiometric = async () => {
+    try {
+      const credentialId = await registerBiometricCredential();
+      saveAppLock({ ...appLock, enabled: true, method: "biometric", biometricCredentialId: credentialId });
+      setSecurityStatus("Fingerprint unlock enabled.");
+    } catch (error) {
+      setSecurityStatus(error instanceof Error ? error.message : "Could not enable fingerprint unlock.");
+    }
+  };
+
+  const disableAppLock = () => {
+    saveAppLock({ enabled: false, method: "pin" });
+    setSecurityStatus("App lock disabled.");
   };
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -1799,16 +1837,39 @@ function Settings() {
         </div>
         {proxylineStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{proxylineStatus}</div>}
       </Panel>
-      <Panel title="Security">
-        <Field label="Encrypted local storage" value="AES-256-GCM enabled" />
-        <Field label="Credential vault" value="Local OS-backed key recommended" />
-        <Field label="PIN lock" value="Optional" />
+      <Panel title="App lock">
+        <Field label="Status" value={appLock.enabled ? "Enabled" : "Disabled"} />
+        <Field label="Unlock method" value={appLock.method === "biometric" ? "Fingerprint" : "PIN code"} />
         <Field label="Biometric device" value={biometricAvailable === undefined ? "Checking..." : biometricAvailable ? "Available" : "Not available"} />
-        {biometricAvailable && (
-          <div className="mt-3">
-            <CheckboxInput label="Enable biometric unlock" checked={biometricEnabled} onChange={updateBiometricEnabled} />
+        <div className="space-y-3">
+          <SelectInput
+            label="Unlock with"
+            value={appLock.method}
+            onChange={(value) => {
+              setAppLock((current) => ({ ...current, method: value as AppUnlockMethod }));
+              setSecurityStatus(undefined);
+            }}
+            options={[
+              { value: "pin", label: "PIN code" },
+              ...(biometricAvailable ? [{ value: "biometric", label: "Fingerprint" }] : [])
+            ]}
+          />
+          {appLock.method === "pin" && (
+            <div className="grid grid-cols-2 gap-3">
+              <TextInput label="New PIN" value={newPin} onChange={setNewPin} type="password" />
+              <TextInput label="Repeat PIN" value={confirmPin} onChange={setConfirmPin} type="password" />
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            {appLock.enabled && <Button onClick={disableAppLock}>Disable lock</Button>}
+            {appLock.method === "pin" ? (
+              <Button variant="primary" onClick={() => void savePin()}>Save PIN</Button>
+            ) : (
+              <Button variant="primary" disabled={!biometricAvailable} onClick={() => void setupBiometric()}>Enable fingerprint</Button>
+            )}
           </div>
-        )}
+        </div>
+        {securityStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{securityStatus}</div>}
       </Panel>
       <Panel title="Operations">
         <Field label="Auto updates" value="Installer ready" />
@@ -1816,6 +1877,133 @@ function Settings() {
         <Field label="Hotkeys" value="Configurable" />
         <Field label="Cloud sync" value="Encrypted sync adapter placeholder" />
       </Panel>
+    </div>
+  );
+}
+
+
+type AppUnlockMethod = "pin" | "biometric";
+type AppLockSettings = {
+  enabled: boolean;
+  method: AppUnlockMethod;
+  pinSalt?: string;
+  pinHash?: string;
+  biometricCredentialId?: string;
+};
+
+const APP_LOCK_STORAGE_KEY = "profilex.appLock";
+
+function getAppLockSettings(): AppLockSettings {
+  try {
+    const saved = window.localStorage.getItem(APP_LOCK_STORAGE_KEY);
+    if (!saved) return { enabled: false, method: "pin" };
+    return { enabled: false, method: "pin", ...JSON.parse(saved) };
+  } catch {
+    return { enabled: false, method: "pin" };
+  }
+}
+
+function storeAppLockSettings(settings: AppLockSettings) {
+  window.localStorage.setItem(APP_LOCK_STORAGE_KEY, JSON.stringify(settings));
+}
+
+function createRandomToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return bytesToBase64(bytes);
+}
+
+async function hashPin(pin: string, salt: string) {
+  const bytes = new TextEncoder().encode(`${salt}:${pin}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return bytesToBase64(new Uint8Array(digest));
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function base64ToBytes(value: string) {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
+async function registerBiometricCredential() {
+  if (!window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) throw new Error("Fingerprint unlock is not supported on this device.");
+  const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  if (!available) throw new Error("Fingerprint unlock is not available on this device.");
+  const credential = await navigator.credentials.create({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: "ProfileX" },
+      user: {
+        id: crypto.getRandomValues(new Uint8Array(16)),
+        name: "local-profilex-user",
+        displayName: "ProfileX local user"
+      },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+      timeout: 60000
+    }
+  }) as PublicKeyCredential | null;
+  if (!credential) throw new Error("Fingerprint setup was cancelled.");
+  return bytesToBase64(new Uint8Array(credential.rawId));
+}
+
+async function verifyBiometricCredential(credentialId: string) {
+  const credential = await navigator.credentials.get({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ id: base64ToBytes(credentialId), type: "public-key" }],
+      userVerification: "required",
+      timeout: 60000
+    }
+  });
+  return Boolean(credential);
+}
+
+function AppLockScreen({ onUnlock }: { onUnlock: () => void }) {
+  const settings = getAppLockSettings();
+  const [pin, setPin] = useState("");
+  const [status, setStatus] = useState<string>();
+
+  const unlockWithPin = async () => {
+    if (!settings.pinSalt || !settings.pinHash) {
+      setStatus("PIN is not configured.");
+      return;
+    }
+    const pinHash = await hashPin(pin, settings.pinSalt);
+    if (pinHash !== settings.pinHash) {
+      setStatus("Incorrect PIN.");
+      return;
+    }
+    onUnlock();
+  };
+
+  const unlockWithBiometric = async () => {
+    try {
+      if (!settings.biometricCredentialId) throw new Error("Fingerprint is not configured.");
+      if (await verifyBiometricCredential(settings.biometricCredentialId)) onUnlock();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Fingerprint unlock failed.");
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-panel p-6 text-ink dark:bg-[#111315] dark:text-white">
+      <div className="w-full max-w-sm rounded-lg border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
+        <h1 className="text-xl font-semibold">Unlock ProfileX</h1>
+        <p className="mt-1 text-sm text-gray-500">Use {settings.method === "biometric" ? "your fingerprint" : "your PIN code"} to continue.</p>
+        <div className="mt-5 space-y-3">
+          {settings.method === "pin" ? (
+            <>
+              <TextInput label="PIN code" value={pin} onChange={setPin} type="password" autoFocus />
+              <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithPin()}>Unlock</Button>
+            </>
+          ) : (
+            <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithBiometric()}>Use fingerprint</Button>
+          )}
+        </div>
+        {status && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{status}</div>}
+      </div>
     </div>
   );
 }
