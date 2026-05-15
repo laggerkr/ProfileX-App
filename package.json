@@ -2,7 +2,7 @@
   "name": "profilex-workspace-manager",
   "private": true,
   "version": "0.1.0",
-  "description": "Workspace Profile Manager for internal browser workspace isolation.",
+  "description": "ProfileX browser profile manager.",
   "main": "apps/frontend/dist-electron/main.js",
   "workspaces": [
     "apps/*",

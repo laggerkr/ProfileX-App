@@ -17,5 +17,5 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
 });
 
 app.listen(PORT, () => {
-  console.log(`Workspace Profile Manager API listening on http://localhost:${PORT}`);
+  console.log(`ProfileX API listening on http://localhost:${PORT}`);
 });

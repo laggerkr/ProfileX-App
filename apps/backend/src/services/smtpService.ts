@@ -11,11 +11,11 @@ export async function sendInvitationEmail(db: AppDatabase, invitation: TeamInvit
   if (!settings.enabled) return { sent: false, skipped: true, reason: "SMTP is disabled" };
   if (!settings.host || !settings.fromEmail) return { sent: false, skipped: true, reason: "SMTP settings are incomplete" };
 
-  const subject = "Workspace Profile Manager invitation";
+  const subject = "ProfileX invitation";
   const text = [
     `Hello ${displayName},`,
     "",
-    "You have been invited to the company Workspace Profile Manager.",
+    "You have been invited to the company ProfileX.",
     `Open this invite link to join: ${invitation.inviteUrl}`,
     "",
     "If you did not expect this invitation, ignore this email."

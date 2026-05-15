@@ -22,10 +22,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-panel text-ink dark:bg-[#111315] dark:text-white">
-      <aside className="w-64 border-r border-line bg-white/80 px-3 py-4 backdrop-blur-xl dark:border-white/10 dark:bg-[#17191c]">
+      <aside className="w-52 border-r border-line bg-white/80 px-3 py-4 backdrop-blur-xl dark:border-white/10 dark:bg-[#17191c]">
         <div className="mb-7 px-2">
-          <div className="text-lg font-semibold">Workspace Profile Manager</div>
-          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Browser Workspace Isolation Platform</div>
+          <div className="text-lg font-semibold">ProfileX</div>
+          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Browser profiles</div>
         </div>
         <nav className="space-y-1">
           {items.map(([label, Icon]) => (

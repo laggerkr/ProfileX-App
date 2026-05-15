@@ -12,7 +12,7 @@ const defaultSmtpSettings: SmtpSettings = {
   secure: false,
   startTls: true,
   fromEmail: "workspace@company.local",
-  fromName: "Workspace Profile Manager",
+  fromName: "ProfileX",
   inviteBaseUrl: "profilex://invite"
 };
 

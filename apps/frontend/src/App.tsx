@@ -161,7 +161,6 @@ function Profiles() {
               <th className="px-4 py-3">Notes</th>
               <th className="px-4 py-3">Tags</th>
               <th className="px-4 py-3">Browser</th>
-              <th className="px-4 py-3">Proxy</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -194,18 +193,6 @@ function Profiles() {
                   <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">
                     {(profile.browserEngine ?? "chromium") === "firefox" ? "Stealthfox" : "Mimic"}
                   </span>
-                </td>
-                <td className="px-4 py-3">
-                  {profile.proxyId && proxyById.get(profile.proxyId) ? (
-                    <div>
-                      <div>{proxyById.get(profile.proxyId)!.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {proxyById.get(profile.proxyId)!.country ?? "Country unknown"}
-                      </div>
-                    </div>
-                  ) : (
-                    <span className="text-gray-400">Direct</span>
-                  )}
                 </td>
                 <td className="px-4 py-3">
                   <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">{profile.status}</span>
@@ -347,7 +334,7 @@ function ProfileEditorDialog({
     operatingSystem: profile?.operatingSystem ?? "windows",
     browserEngine: profile?.browserEngine ?? "chromium",
     storageMode: profile?.storageMode ?? "device",
-    startupUrls: profile?.startupUrls.join("\n") ?? "https://example.com",
+    startupUrls: profile?.startupUrls.join("\n") ?? "https://browserleaks.com/ip",
     userAgent: profile?.fingerprint.userAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     timezoneMode: profile?.fingerprint.timezoneMode ?? "mask",
     timezone: profile?.fingerprint.timezone ?? "Europe/Kyiv",

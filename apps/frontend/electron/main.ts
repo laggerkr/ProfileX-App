@@ -25,7 +25,7 @@ async function createWindow() {
     height: 820,
     minWidth: 1024,
     minHeight: 680,
-    title: "Workspace Profile Manager",
+    title: "ProfileX",
     backgroundColor: "#f7f8fa",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

@@ -53,7 +53,7 @@ export function createProfile(db: AppDatabase, input: Partial<BrowserProfile>) {
     browserEngine: input.browserEngine ?? "chromium",
     storageMode: input.storageMode ?? "device",
     fingerprint: input.fingerprint ?? realisticFingerprintPreset(),
-    startupUrls: input.startupUrls ?? ["https://example.com"],
+    startupUrls: input.startupUrls ?? ["https://browserleaks.com/ip"],
     extensions: input.extensions ?? [],
     status: "ready",
     createdAt: now,

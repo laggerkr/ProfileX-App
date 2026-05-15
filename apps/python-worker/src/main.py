@@ -40,7 +40,7 @@ class PageCheckRequest(BaseModel):
     height: int = Field(default=900, ge=240, le=4320)
 
 
-app = FastAPI(title="Workspace Profile Manager Python Worker", version="0.1.0")
+app = FastAPI(title="ProfileX Python Worker", version="0.1.0")
 tasks: dict[str, TaskRecord] = {}
 
 
