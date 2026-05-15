@@ -13,6 +13,7 @@ function mapProfile(row: any): BrowserProfile {
     group: row.profile_group,
     notes: row.notes ?? undefined,
     proxyId: row.proxy_id ?? undefined,
+    proxyProtocol: row.proxy_protocol ?? undefined,
     fingerprint: JSON.parse(row.fingerprint),
     startupUrls: JSON.parse(row.startup_urls),
     extensions: JSON.parse(row.extensions),
@@ -42,6 +43,7 @@ export function createProfile(db: AppDatabase, input: Partial<BrowserProfile>) {
     group: input.group ?? "Default",
     notes: input.notes,
     proxyId: input.proxyId,
+    proxyProtocol: input.proxyProtocol ?? "http",
     fingerprint: input.fingerprint ?? realisticFingerprintPreset(),
     startupUrls: input.startupUrls ?? ["https://example.com"],
     extensions: input.extensions ?? [],
@@ -52,8 +54,8 @@ export function createProfile(db: AppDatabase, input: Partial<BrowserProfile>) {
 
   db.prepare(
     `INSERT INTO profiles
-    (id, workspace_id, name, tags, profile_group, notes, proxy_id, fingerprint, startup_urls, extensions, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    (id, workspace_id, name, tags, profile_group, notes, proxy_id, proxy_protocol, fingerprint, startup_urls, extensions, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     profile.id,
     profile.workspaceId,
@@ -62,6 +64,7 @@ export function createProfile(db: AppDatabase, input: Partial<BrowserProfile>) {
     profile.group,
     profile.notes,
     profile.proxyId,
+    profile.proxyProtocol,
     JSON.stringify(profile.fingerprint),
     JSON.stringify(profile.startupUrls),
     JSON.stringify(profile.extensions),
@@ -78,13 +81,14 @@ export function updateProfile(db: AppDatabase, id: string, patch: Partial<Browse
   if (!current) return undefined;
   const next = { ...current, ...patch, updatedAt: new Date().toISOString() };
   db.prepare(
-    `UPDATE profiles SET name=?, tags=?, profile_group=?, notes=?, proxy_id=?, fingerprint=?, startup_urls=?, extensions=?, status=?, updated_at=?, last_launched_at=? WHERE id=?`
+    `UPDATE profiles SET name=?, tags=?, profile_group=?, notes=?, proxy_id=?, proxy_protocol=?, fingerprint=?, startup_urls=?, extensions=?, status=?, updated_at=?, last_launched_at=? WHERE id=?`
   ).run(
     next.name,
     JSON.stringify(next.tags),
     next.group,
     next.notes,
     next.proxyId,
+    next.proxyProtocol,
     JSON.stringify(next.fingerprint),
     JSON.stringify(next.startupUrls),
     JSON.stringify(next.extensions),

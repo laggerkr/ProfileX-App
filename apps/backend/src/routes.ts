@@ -66,7 +66,7 @@ export function createRoutes(db: AppDatabase) {
     try {
       const profile = getProfile(db, req.params.id);
       if (!profile) return res.status(404).json({ error: "Profile not found" });
-      const result = await launchProfile({ profile, proxy: resolveLaunchProxy(db, profile.proxyId), request: { profileId: profile.id, ...req.body }, dataRoot: DATA_ROOT });
+      const result = await launchProfile({ profile, proxy: resolveLaunchProxy(db, profile.proxyId, profile.proxyProtocol), request: { profileId: profile.id, ...req.body }, dataRoot: DATA_ROOT });
       updateProfile(db, profile.id, { status: "running", lastLaunchedAt: new Date().toISOString() });
       logActivity(db, "profile.launched", profile.name);
       return res.json({ data: result });
@@ -206,27 +206,18 @@ export function createRoutes(db: AppDatabase) {
   return router;
 }
 
-function resolveLaunchProxy(db: AppDatabase, proxyId?: string): ProxySettings | undefined {
+function resolveLaunchProxy(db: AppDatabase, proxyId?: string, protocol: ProxySettings["protocol"] = "http"): ProxySettings | undefined {
   const proxy = getProxy(db, proxyId);
   if (!proxy) return undefined;
-
-  const hasCredentials = Boolean(proxy.username || proxy.password);
-  if (proxy.protocol !== "socks5" || !hasCredentials) return proxy;
-
-  const httpFallback = listProxies(db).find(
-    (candidate) =>
-      (candidate.protocol === "http" || candidate.protocol === "https") &&
-      candidate.host === proxy.host &&
-      candidate.username === proxy.username
-  );
-
-  if (httpFallback) return getProxy(db, httpFallback.id);
-
-  throw new Error(
-    "Chromium does not support SOCKS5 proxy authentication. Add/select the HTTP proxy port for this provider, or use SOCKS5 without login/password."
-  );
+  const port = protocol === "socks5" ? proxy.socks5Port : proxy.httpPort;
+  if (!port) throw new Error(`${protocol.toUpperCase()} port is not configured for this proxy.`);
+  const resolved = { ...proxy, protocol, port };
+  const hasCredentials = Boolean(resolved.username || resolved.password);
+  if (resolved.protocol === "socks5" && hasCredentials) {
+    throw new Error("Chromium does not support SOCKS5 proxy authentication. Select HTTP for authenticated proxy sessions.");
+  }
+  return resolved;
 }
-
 function syncProfileRuntimeStatuses(db: AppDatabase) {
   const runningIds = new Set(listRunningProfiles().map((profile) => profile.id));
   for (const profile of listProfiles(db)) {

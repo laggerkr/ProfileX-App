@@ -35,8 +35,8 @@ export async function importProxylineProxies(db: AppDatabase) {
     for (const candidate of candidates) {
       const current = existing.find((proxy) => sameProxy(proxy, candidate));
       if (current) {
-        if (current.name !== candidate.name || current.group !== candidate.group) {
-          updateProxy(db, current.id, { name: candidate.name, group: candidate.group });
+        if (current.name !== candidate.name || current.group !== candidate.group || current.httpPort !== candidate.httpPort || current.socks5Port !== candidate.socks5Port) {
+          updateProxy(db, current.id, { name: candidate.name, group: candidate.group, httpPort: candidate.httpPort, socks5Port: candidate.socks5Port });
           updatedCount += 1;
         }
         continue;
@@ -66,27 +66,29 @@ function mapProxylineProxy(item: ProxylineProxy): Array<Omit<ProxySettings, "id"
   const username = item.username ?? item.login;
   const password = item.password ?? item.pass;
   const countryCode = (item.country_code ?? item.country)?.toUpperCase();
-  const baseName = proxylineName(item.tags);
-  const candidates: Array<Omit<ProxySettings, "id" | "status">> = [];
-  const append = (protocol: ProxySettings["protocol"], rawPort: number | string | undefined) => {
-    const port = Number(rawPort);
-    if (!Number.isFinite(port)) return;
-    candidates.push({
-      name: baseName || `${protocol.toUpperCase()} ${host}:${port}`,
-      protocol,
-      host,
-      port,
-      username,
-      password,
-      group: "Proxyline",
-      countryCode
-    });
-  };
-  append("http", item.port_http ?? item.http_port);
-  append("socks5", item.port_socks5 ?? item.socks5_port);
-  return candidates;
+  const httpPort = numberOrUndefined(item.port_http ?? item.http_port);
+  const socks5Port = numberOrUndefined(item.port_socks5 ?? item.socks5_port);
+  const primaryProtocol: ProxySettings["protocol"] = httpPort ? "http" : "socks5";
+  const primaryPort = httpPort ?? socks5Port;
+  if (!primaryPort) return [];
+  return [{
+    name: proxylineName(item.tags) || `${host}`,
+    protocol: primaryProtocol,
+    host,
+    port: primaryPort,
+    httpPort,
+    socks5Port,
+    username,
+    password,
+    group: "Proxyline",
+    countryCode
+  }];
 }
 
+function numberOrUndefined(value: number | string | undefined) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
 function proxylineName(tags: unknown) {
   if (!Array.isArray(tags)) return undefined;
   const names = tags
@@ -104,8 +106,5 @@ function proxylineName(tags: unknown) {
 }
 
 function sameProxy(proxy: ProxySettings, candidate: Omit<ProxySettings, "id" | "status">) {
-  return proxy.protocol === candidate.protocol &&
-    proxy.host === candidate.host &&
-    proxy.port === candidate.port &&
-    (proxy.username ?? "") === (candidate.username ?? "");
+  return proxy.host === candidate.host && (proxy.username ?? "") === (candidate.username ?? "");
 }

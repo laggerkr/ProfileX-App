@@ -11,6 +11,8 @@ export interface ProxySettings {
   protocol: ProxyProtocol;
   host: string;
   port: number;
+  httpPort?: number;
+  socks5Port?: number;
   username?: string;
   password?: string;
   hasPassword?: boolean;
@@ -42,6 +44,7 @@ export interface BrowserProfile {
   notes?: string;
   workspaceId: string;
   proxyId?: string;
+  proxyProtocol?: ProxyProtocol;
   fingerprint: FingerprintSettings;
   startupUrls: string[];
   extensions: string[];

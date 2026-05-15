@@ -14,6 +14,8 @@ function mapProxy(row: any, options: { includePassword?: boolean } = {}): ProxyS
     protocol: normalizeProxyProtocol(row.protocol),
     host: row.host,
     port: row.port,
+    httpPort: row.http_port ?? undefined,
+    socks5Port: row.socks5_port ?? undefined,
     username: row.username ?? undefined,
     password: options.includePassword ? decryptSecret(encryptedPassword) : undefined,
     hasPassword: Boolean(encryptedPassword),
@@ -48,10 +50,32 @@ export function createProxy(db: AppDatabase, input: Omit<ProxySettings, "id" | "
   if (!input.host || !Number.isFinite(input.port)) {
     throw new Error("Proxy host and port are required");
   }
-  const proxy: ProxySettings = { ...input, protocol: normalizeProxyProtocol(input.protocol), id: nanoid(), status: "unknown" };
+  const protocol = normalizeProxyProtocol(input.protocol);
+  const existing = db.prepare("SELECT id FROM proxies WHERE host = ? AND COALESCE(username, '') = ?")
+    .get(input.host, input.username ?? "") as { id: string } | undefined;
+  if (existing) {
+    const current = getProxy(db, existing.id);
+    if (current) {
+      const updated = updateProxy(db, existing.id, {
+        name: input.name || current.name,
+        httpPort: input.httpPort ?? current.httpPort ?? (protocol === "http" ? input.port : undefined),
+        socks5Port: input.socks5Port ?? current.socks5Port ?? (protocol === "socks5" ? input.port : undefined)
+      });
+      if (updated) return updated;
+    }
+  }
+  const proxy: ProxySettings = {
+    ...input,
+    protocol,
+    port: protocol === "socks5" ? input.socks5Port ?? input.port : input.httpPort ?? input.port,
+    httpPort: input.httpPort ?? (protocol === "http" ? input.port : undefined),
+    socks5Port: input.socks5Port ?? (protocol === "socks5" ? input.port : undefined),
+    id: nanoid(),
+    status: "unknown"
+  };
   db.prepare(
-    "INSERT INTO proxies (id, name, protocol, host, port, username, password_encrypted, proxy_group, country, country_code, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(proxy.id, proxy.name, proxy.protocol, proxy.host, proxy.port, proxy.username, encryptSecret(proxy.password), proxy.group, proxy.country, proxy.countryCode, proxy.status);
+    "INSERT INTO proxies (id, name, protocol, host, port, http_port, socks5_port, username, password_encrypted, proxy_group, country, country_code, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(proxy.id, proxy.name, proxy.protocol, proxy.host, proxy.port, proxy.httpPort, proxy.socks5Port, proxy.username, encryptSecret(proxy.password), proxy.group, proxy.country, proxy.countryCode, proxy.status);
   logActivity(db, "proxy.created", proxy.name);
   return toPublicProxy(proxy);
 }
@@ -64,12 +88,14 @@ export function updateProxy(db: AppDatabase, id: string, patch: Partial<ProxySet
     throw new Error("Proxy host and port are required");
   }
   db.prepare(
-    "UPDATE proxies SET name=?, protocol=?, host=?, port=?, username=?, password_encrypted=?, proxy_group=?, country=?, country_code=?, status=? WHERE id=?"
+    "UPDATE proxies SET name=?, protocol=?, host=?, port=?, http_port=?, socks5_port=?, username=?, password_encrypted=?, proxy_group=?, country=?, country_code=?, status=? WHERE id=?"
   ).run(
     next.name,
     next.protocol,
     next.host,
     next.port,
+    next.httpPort,
+    next.socks5Port,
     next.username,
     patch.password === undefined ? db.prepare("SELECT password_encrypted FROM proxies WHERE id = ?").get(id)?.password_encrypted : encryptSecret(next.password),
     next.group,
@@ -216,9 +242,16 @@ export function importProxyLines(db: AppDatabase, text: string) {
 }
 
 function createProxyIfMissing(db: AppDatabase, input: Omit<ProxySettings, "id" | "status">) {
-  const existing = db.prepare("SELECT id FROM proxies WHERE protocol = ? AND host = ? AND port = ? AND COALESCE(username, '') = ?")
-    .get(normalizeProxyProtocol(input.protocol), input.host, input.port, input.username ?? "");
-  return existing ? undefined : createProxy(db, input);
+  const existing = db.prepare("SELECT id FROM proxies WHERE host = ? AND COALESCE(username, '') = ?")
+    .get(input.host, input.username ?? "") as { id: string } | undefined;
+  if (!existing) return createProxy(db, input);
+  const current = getProxy(db, existing.id);
+  if (!current) return undefined;
+  updateProxy(db, existing.id, {
+    httpPort: input.httpPort ?? current.httpPort ?? (input.protocol === "http" ? input.port : undefined),
+    socks5Port: input.socks5Port ?? current.socks5Port ?? (input.protocol === "socks5" ? input.port : undefined)
+  });
+  return undefined;
 }
 function parseProxyLine(line: string): Omit<ProxySettings, "id" | "status"> | undefined {
   const [protocolHost, credentials] = line.split("@").reverse();
@@ -252,24 +285,15 @@ function parseStructuredProxyBlock(block: string): Array<Omit<ProxySettings, "id
   const socksPort = ports[2] ? Number(ports[2]) : undefined;
   const result: Array<Omit<ProxySettings, "id" | "status">> = [];
 
-  if (Number.isFinite(httpPort)) {
+  if (Number.isFinite(httpPort) || (socksPort && Number.isFinite(socksPort))) {
+    const primaryProtocol: ProxySettings["protocol"] = Number.isFinite(httpPort) ? "http" : "socks5";
     result.push({
-      name: `HTTP ${host}:${httpPort}`,
-      protocol: "http",
+      name: host,
+      protocol: primaryProtocol,
       host,
-      port: httpPort,
-      username,
-      password,
-      group: "Imported"
-    });
-  }
-
-  if (socksPort && Number.isFinite(socksPort)) {
-    result.push({
-      name: `SOCKS5 ${host}:${socksPort}`,
-      protocol: "socks5",
-      host,
-      port: socksPort,
+      port: primaryProtocol === "http" ? httpPort : socksPort!,
+      httpPort: Number.isFinite(httpPort) ? httpPort : undefined,
+      socks5Port: socksPort && Number.isFinite(socksPort) ? socksPort : undefined,
       username,
       password,
       group: "Imported"

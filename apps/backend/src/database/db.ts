@@ -94,10 +94,43 @@ function seed(db: AppDatabase) {
 function migrate(db: AppDatabase) {
   addColumnIfMissing(db, "proxies", "country", "TEXT");
   addColumnIfMissing(db, "proxies", "country_code", "TEXT");
+  addColumnIfMissing(db, "proxies", "http_port", "INTEGER");
+  addColumnIfMissing(db, "proxies", "socks5_port", "INTEGER");
+  addColumnIfMissing(db, "profiles", "proxy_protocol", "TEXT");
+  backfillProxyPorts(db);
+  mergeLegacyProxyRows(db);
 }
 
 function addColumnIfMissing(db: AppDatabase, table: string, column: string, type: string) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
   if (columns.some((item) => item.name === column)) return;
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+
+function backfillProxyPorts(db: AppDatabase) {
+  db.exec("UPDATE proxies SET http_port = port WHERE http_port IS NULL AND protocol IN ('http', 'https')");
+  db.exec("UPDATE proxies SET socks5_port = port WHERE socks5_port IS NULL AND protocol = 'socks5'");
+  db.exec("UPDATE profiles SET proxy_protocol = (SELECT CASE WHEN proxies.protocol = 'socks5' THEN 'socks5' ELSE 'http' END FROM proxies WHERE proxies.id = profiles.proxy_id) WHERE proxy_protocol IS NULL AND proxy_id IS NOT NULL");
+  db.exec("UPDATE profiles SET proxy_protocol = 'http' WHERE proxy_protocol IS NULL");
+}
+
+function mergeLegacyProxyRows(db: AppDatabase) {
+  const proxies = db.prepare("SELECT * FROM proxies ORDER BY id ASC").all();
+  const groups = new Map<string, any[]>();
+  for (const proxy of proxies) {
+    const key = `${proxy.host}:${proxy.username ?? ''}`;
+    groups.set(key, [...(groups.get(key) ?? []), proxy]);
+  }
+  for (const rows of groups.values()) {
+    if (rows.length < 2) continue;
+    const keeper = rows[0];
+    const httpPort = rows.find((row) => row.http_port)?.http_port;
+    const socks5Port = rows.find((row) => row.socks5_port)?.socks5_port;
+    db.prepare("UPDATE proxies SET http_port=?, socks5_port=? WHERE id=?").run(httpPort, socks5Port, keeper.id);
+    for (const duplicate of rows.slice(1)) {
+      const duplicateProtocol = duplicate.socks5_port ? "socks5" : "http";
+      db.prepare("UPDATE profiles SET proxy_id=?, proxy_protocol=COALESCE(proxy_protocol, ?) WHERE proxy_id=?").run(keeper.id, duplicateProtocol, duplicate.id);
+      db.prepare("DELETE FROM proxies WHERE id=?").run(duplicate.id);
+    }
+  }
 }

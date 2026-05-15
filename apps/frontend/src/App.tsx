@@ -226,6 +226,7 @@ function ProfileEditorDialog({
     tags: profile?.tags.join(", ") ?? "qa, internal",
     notes: profile?.notes ?? "",
     proxyId: profile?.proxyId ?? "",
+    proxyProtocol: profile?.proxyProtocol ?? "http",
     startupUrls: profile?.startupUrls.join("\n") ?? "https://example.com",
     userAgent: profile?.fingerprint.userAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     timezone: profile?.fingerprint.timezone ?? "Europe/Kyiv",
@@ -259,6 +260,13 @@ function ProfileEditorDialog({
       password: selectedProxy?.password ?? ""
     });
   }, [selectedProxy?.id, selectedProxy?.username, selectedProxy?.password]);
+
+  useEffect(() => {
+    if (!selectedProxy) return;
+    const currentTypeAvailable = form.proxyProtocol === "http" ? selectedProxy.httpPort : selectedProxy.socks5Port;
+    if (currentTypeAvailable) return;
+    update("proxyProtocol", selectedProxy.httpPort ? "http" : "socks5");
+  }, [selectedProxy?.id, selectedProxy?.httpPort, selectedProxy?.socks5Port]);
 
   useEffect(() => {
     if (!selectedProxy || selectedProxy.country) return;
@@ -328,6 +336,7 @@ function ProfileEditorDialog({
         tags: splitList(form.tags),
         notes: form.notes.trim() || undefined,
         proxyId,
+        proxyProtocol: form.proxyProtocol as ProxySettings["protocol"],
         startupUrls: splitList(form.startupUrls),
         fingerprint
       });
@@ -353,6 +362,15 @@ function ProfileEditorDialog({
           <SelectInput label="Group" value={form.group} onChange={(value) => update("group", value)} options={groupOptions} />
           <TextInput label="Tags" value={form.tags} onChange={(value) => update("tags", value)} placeholder="qa, staging, support" />
           <ProxySelect value={form.proxyId} proxies={proxies} onChange={(value) => update("proxyId", value)} />
+          <SelectInput
+            label="Proxy type"
+            value={form.proxyProtocol}
+            onChange={(value) => update("proxyProtocol", value)}
+            options={[
+              { value: "http", label: "HTTP" },
+              { value: "socks5", label: "SOCKS5" }
+            ].filter((option) => !selectedProxy || (option.value === "http" ? selectedProxy.httpPort : selectedProxy.socks5Port))}
+          />
           <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-[#202328] dark:text-gray-400">
             Proxy country: <span className="font-medium text-ink dark:text-white">{selectedProxyCountry}</span>
           </div>
@@ -360,7 +378,7 @@ function ProfileEditorDialog({
             <div className="col-span-2 rounded-lg border border-line bg-gray-50 p-4 dark:border-white/10 dark:bg-[#202328]">
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-sm font-semibold">Selected proxy credentials</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{selectedProxy.protocol.toUpperCase()} {selectedProxy.host}:{selectedProxy.port}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{selectedProxy.host} · HTTP {selectedProxy.httpPort ?? "-"} · SOCKS5 {selectedProxy.socks5Port ?? "-"}</div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <TextInput label="Login" value={selectedProxyCredentials.username} onChange={(value) => updateSelectedProxyCredentials("username", value)} />
@@ -463,7 +481,9 @@ function ProxyManager() {
     setProxyDialogOpen(false);
   };
   const filteredProxies = useMemo(
-    () => (typeFilter === "all" ? proxies : proxies.filter((proxy) => proxy.protocol === typeFilter)),
+    () => typeFilter === "all"
+      ? proxies
+      : proxies.filter((proxy) => typeFilter === "http" ? proxy.httpPort : proxy.socks5Port),
     [proxies, typeFilter]
   );
   const visibleProxyIds = useMemo(() => filteredProxies.map((proxy) => proxy.id), [filteredProxies]);
@@ -641,8 +661,8 @@ function ProxyManager() {
           <div className="flex shrink-0 rounded-lg border border-line bg-gray-50 p-1 dark:border-white/10 dark:bg-[#202328]">
             {[
               { value: "all", label: `All ${proxies.length}` },
-              { value: "http", label: `HTTP ${proxies.filter((proxy) => proxy.protocol === "http").length}` },
-              { value: "socks5", label: `SOCKS5 ${proxies.filter((proxy) => proxy.protocol === "socks5").length}` }
+              { value: "http", label: `HTTP ${proxies.filter((proxy) => proxy.httpPort).length}` },
+              { value: "socks5", label: `SOCKS5 ${proxies.filter((proxy) => proxy.socks5Port).length}` }
             ].map((item) => (
               <button
                 key={item.value}
@@ -669,8 +689,9 @@ function ProxyManager() {
                 />
               </th>
               <th className="w-[22%] px-3 py-2">Name</th>
-              <th className="w-[9%] px-3 py-2">Type</th>
-              <th className="w-[17%] px-3 py-2">Endpoint</th>
+              <th className="w-[10%] px-3 py-2">HTTP</th>
+              <th className="w-[10%] px-3 py-2">SOCKS5</th>
+              <th className="w-[16%] px-3 py-2">Host</th>
               <th className="w-[13%] px-3 py-2">Password</th>
               <th className="w-[11%] px-3 py-2">Country</th>
               <th className="w-[12%] px-3 py-2">Status</th>
@@ -685,12 +706,13 @@ function ProxyManager() {
                 </td>
                 <td className="px-3 py-2">
                   <div className="truncate font-medium">{proxy.name}</div>
-                  {proxy.protocol === "socks5" && (proxy.username || proxy.hasPassword) && (
+                  {proxy.socks5Port && (proxy.username || proxy.hasPassword) && (
                     <div className="text-xs text-amber-600 dark:text-amber-300">Authenticated SOCKS5 is not supported by Chromium</div>
                   )}
                 </td>
-                <td className="px-3 py-2 uppercase">{proxy.protocol}</td>
-                <td className="truncate px-3 py-2 font-mono text-xs">{proxy.host}:{proxy.port}</td>
+                <td className="px-3 py-2 font-mono text-xs">{proxy.httpPort ?? "-"}</td>
+                <td className="px-3 py-2 font-mono text-xs">{proxy.socks5Port ?? "-"}</td>
+                <td className="truncate px-3 py-2 font-mono text-xs">{proxy.host}</td>
                 <td className="truncate px-3 py-2 font-mono text-xs">{proxy.password ?? (proxy.hasPassword ? "Saved" : "-")}</td>
                 <td className="truncate px-3 py-2">{proxy.country ?? "Unknown"}</td>
                 <td className="px-3 py-2">
@@ -717,7 +739,7 @@ function ProxyManager() {
             ))}
             {!filteredProxies.length && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                <td colSpan={9} className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                   No proxies for this type.
                 </td>
               </tr>
@@ -1766,9 +1788,8 @@ function ProxySelect({
         <option value="">Direct connection</option>
         <option value="__new__">Add new proxy...</option>
         {proxies.map((proxy) => (
-          <option key={proxy.id} value={proxy.id} disabled={proxy.protocol === "socks5" && Boolean(proxy.username || proxy.hasPassword)}>
+          <option key={proxy.id} value={proxy.id}>
             {proxy.name}{proxy.country ? ` - ${proxy.country}` : ""}
-            {proxy.protocol === "socks5" && (proxy.username || proxy.hasPassword) ? " (auth not supported by Chromium)" : ""}
           </option>
         ))}
       </select>
