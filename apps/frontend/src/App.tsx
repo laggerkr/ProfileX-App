@@ -1,5 +1,5 @@
 import type { BrowserProfile, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
-import { Activity, Archive, Copy, Database, FolderKanban, Globe2, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Square, Sun, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
+import { Activity, Apple, Chrome, Copy, Database, FolderKanban, Globe2, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
 import { Shell } from "./components/Shell";
@@ -86,7 +86,7 @@ function Dashboard() {
 }
 
 function Profiles() {
-  const { profiles, proxies, createProfile, updateProfile, deleteProfile, launchProfile, stopProfile, cloneProfile, archiveProfile } = useWorkspaceStore();
+  const { profiles, proxies, createProfile, updateProfile, deleteProfile, launchProfile, stopProfile, cloneProfile } = useWorkspaceStore();
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<BrowserProfile>();
   const [editingNotesProfile, setEditingNotesProfile] = useState<BrowserProfile>();
@@ -161,6 +161,7 @@ function Profiles() {
               <th className="px-4 py-3">Notes</th>
               <th className="px-4 py-3">Tags</th>
               <th className="px-4 py-3">Browser</th>
+              <th className="px-4 py-3">OS</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -170,7 +171,6 @@ function Profiles() {
               <tr key={profile.id} className="border-t border-line dark:border-white/10">
                 <td className="px-4 py-3">
                   <div className="font-medium">{profile.name}</div>
-                  <div className="text-xs text-gray-500">{profile.operatingSystem ?? "windows"}</div>
                 </td>
                 <td className="px-4 py-3">{profile.group}</td>
                 <td className="px-4 py-3">
@@ -190,8 +190,13 @@ function Profiles() {
                   </button>
                 </td>
                 <td className="px-4 py-3">
-                  <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">
-                    {(profile.browserEngine ?? "chromium") === "firefox" ? "Stealthfox" : "Mimic"}
+                  <span className="inline-flex rounded-lg bg-gray-100 p-2 dark:bg-white/10" title={(profile.browserEngine ?? "chromium") === "firefox" ? "Stealthfox" : "Mimic"}>
+                    {(profile.browserEngine ?? "chromium") === "firefox" ? <Globe2 size={16} /> : <Chrome size={16} />}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex rounded-lg bg-gray-100 p-2 dark:bg-white/10" title={profile.operatingSystem ?? "windows"}>
+                    <ProfileOsIcon operatingSystem={profile.operatingSystem} />
                   </span>
                 </td>
                 <td className="px-4 py-3">
@@ -213,7 +218,6 @@ function Profiles() {
                     )}
                     <Button icon={<Copy size={15} />} onClick={() => void cloneProfile(profile.id)} />
                     <Button icon={<Pencil size={15} />} onClick={() => setEditingProfile(profile)} />
-                    <Button icon={<Archive size={15} />} onClick={() => void archiveProfile(profile.id)} />
                     <Button
                       icon={<Trash2 size={15} />}
                       onClick={() => {
@@ -231,6 +235,14 @@ function Profiles() {
       </div>
     </section>
   );
+}
+
+
+function ProfileOsIcon({ operatingSystem }: { operatingSystem?: BrowserProfile["operatingSystem"] }) {
+  if (operatingSystem === "macos") return <Apple size={16} />;
+  if (operatingSystem === "linux") return <Terminal size={16} />;
+  if (operatingSystem === "android") return <Smartphone size={16} />;
+  return <Monitor size={16} />;
 }
 
 function InlineProfileNotesDialog({
@@ -1661,10 +1673,17 @@ function Settings() {
   const [proxyline, setProxyline] = useState<ProxylineSettings>({});
   const [proxylineApiKey, setProxylineApiKey] = useState("");
   const [proxylineStatus, setProxylineStatus] = useState<string>();
+  const [biometricAvailable, setBiometricAvailable] = useState<boolean>();
+  const [biometricEnabled, setBiometricEnabled] = useState(() => window.localStorage.getItem("profilex.biometricEnabled") === "true");
 
   useEffect(() => {
     void api.smtpSettings().then(setSmtp);
     void api.proxylineSettings().then(setProxyline);
+    if (!window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
+      setBiometricAvailable(false);
+      return;
+    }
+    void window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(setBiometricAvailable).catch(() => setBiometricAvailable(false));
   }, []);
 
   const changeTheme = (nextTheme: ThemeMode) => {
@@ -1699,6 +1718,11 @@ function Settings() {
     setProxyline(saved);
     setProxylineApiKey("");
     setProxylineStatus("Proxyline API key saved.");
+  };
+
+  const updateBiometricEnabled = (value: boolean) => {
+    setBiometricEnabled(value);
+    window.localStorage.setItem("profilex.biometricEnabled", String(value));
   };
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -1760,7 +1784,12 @@ function Settings() {
         <Field label="Encrypted local storage" value="AES-256-GCM enabled" />
         <Field label="Credential vault" value="Local OS-backed key recommended" />
         <Field label="PIN lock" value="Optional" />
-        <Field label="Biometric auth" value="Optional" />
+        <Field label="Biometric device" value={biometricAvailable === undefined ? "Checking..." : biometricAvailable ? "Available" : "Not available"} />
+        {biometricAvailable && (
+          <div className="mt-3">
+            <CheckboxInput label="Enable biometric unlock" checked={biometricEnabled} onChange={updateBiometricEnabled} />
+          </div>
+        )}
       </Panel>
       <Panel title="Operations">
         <Field label="Auto updates" value="Installer ready" />

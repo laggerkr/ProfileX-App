@@ -1,5 +1,6 @@
 import { clsx } from "clsx";
-import { Activity, Bot, Fingerprint, FolderKanban, Gauge, KeyRound, ListChecks, MonitorCog, Settings, ShieldCheck, UserPlus } from "lucide-react";
+import { Activity, Bot, Fingerprint, FolderKanban, Gauge, KeyRound, ListChecks, MonitorCog, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserPlus } from "lucide-react";
+import { useState } from "react";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
 
 const items = [
@@ -19,28 +20,50 @@ const items = [
 export function Shell({ children }: { children: React.ReactNode }) {
   const activePage = useWorkspaceStore((state) => state.activePage);
   const setActivePage = useWorkspaceStore((state) => state.setActivePage);
+  const [isCollapsed, setCollapsed] = useState(() => window.localStorage.getItem("profilex.sidebarCollapsed") === "true");
+
+  const toggleSidebar = () => {
+    setCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem("profilex.sidebarCollapsed", String(next));
+      return next;
+    });
+  };
 
   return (
     <div className="flex min-h-screen bg-panel text-ink dark:bg-[#111315] dark:text-white">
-      <aside className="w-52 border-r border-line bg-white/80 px-3 py-4 backdrop-blur-xl dark:border-white/10 dark:bg-[#17191c]">
-        <div className="mb-7 px-2">
-          <div className="text-lg font-semibold">ProfileX</div>
-          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Browser profiles</div>
+      <aside className={clsx("border-r border-line bg-white/80 px-3 py-4 backdrop-blur-xl transition-all dark:border-white/10 dark:bg-[#17191c]", isCollapsed ? "w-16" : "w-52")}>
+        <div className={clsx("mb-7 flex items-start", isCollapsed ? "justify-center" : "justify-between px-2")}>
+          {!isCollapsed && (
+            <div>
+              <div className="text-lg font-semibold">ProfileX</div>
+              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Browser profiles</div>
+            </div>
+          )}
+          <button
+            onClick={toggleSidebar}
+            className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
+            title={isCollapsed ? "Expand menu" : "Collapse menu"}
+          >
+            {isCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
         </div>
         <nav className="space-y-1">
           {items.map(([label, Icon]) => (
             <button
               key={label}
               onClick={() => setActivePage(label)}
+              title={label}
               className={clsx(
-                "flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm transition",
+                "flex h-10 w-full items-center rounded-lg text-sm transition",
+                isCollapsed ? "justify-center px-0" : "gap-3 px-3 text-left",
                 activePage === label
                   ? "bg-ink text-white shadow-soft dark:bg-white dark:text-ink"
                   : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
               )}
             >
               <Icon size={17} />
-              {label}
+              {!isCollapsed && label}
             </button>
           ))}
         </nav>

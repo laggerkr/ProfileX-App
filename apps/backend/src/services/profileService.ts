@@ -29,7 +29,7 @@ function mapProfile(row: any): BrowserProfile {
 }
 
 export function listProfiles(db: AppDatabase) {
-  return db.prepare("SELECT * FROM profiles ORDER BY updated_at DESC").all().map(mapProfile);
+  return db.prepare("SELECT * FROM profiles ORDER BY created_at ASC").all().map(mapProfile);
 }
 
 export function getProfile(db: AppDatabase, id: string) {

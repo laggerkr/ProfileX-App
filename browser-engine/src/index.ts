@@ -55,7 +55,7 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
     : undefined;
   const proxyConfig = proxy
     ? relay
-      ? { server: `socks5://127.0.0.1:${relay.address().port}` }
+      ? { server: `socks5://localhost:${relay.address().port}` }
       : {
           server: `${normalizeProxyProtocol(proxy.protocol)}://${proxy.host}:${proxy.port}`,
           username: proxy.username,
@@ -80,7 +80,11 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
     args: engine === "chromium" ? buildChromiumArgs(profile, proxy) : [],
     firefoxUserPrefs: engine === "firefox"
       ? {
-          ...(proxy?.protocol === "socks5" ? { "network.proxy.socks_remote_dns": true } : {}),
+          ...(proxy?.protocol === "socks5" ? {
+            "network.proxy.socks_remote_dns": true,
+            "network.proxy.socks_version": 5,
+            "network.dns.disablePrefetch": true
+          } : {}),
           ...(profile.tabBehavior === "restore" ? { "browser.startup.page": 3 } : {})
         }
       : undefined,
@@ -97,7 +101,7 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
       if (fp.hardwareConcurrency) Object.defineProperty(navigator, "hardwareConcurrency", { get: () => fp.hardwareConcurrency });
       Object.defineProperty(navigator, "deviceMemory", { get: () => 8 });
     }
-    if (fp.webGlMode !== "real") {
+    if (fp.webGlMode !== "real" && typeof WebGLRenderingContext !== "undefined") {
       const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
       WebGLRenderingContext.prototype.getParameter = function(parameter) {
         if (parameter === 37445) return fp.webGlVendor;

@@ -26,15 +26,33 @@ export function createRoutes(db: AppDatabase) {
     const healthy = proxies.filter((proxy) => proxy.status === "healthy").length;
     const recentLaunches = profiles
       .filter((profile) => profile.lastLaunchedAt)
+      .sort((left, right) => String(right.lastLaunchedAt).localeCompare(String(left.lastLaunchedAt)))
       .slice(0, 5)
       .map((profile) => ({ profileId: profile.id, name: profile.name, launchedAt: profile.lastLaunchedAt! }));
+    const launchesByDay = new Map(
+      (db.prepare(`SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS launches
+        FROM activity_logs
+        WHERE action = 'profile.launched'
+          AND created_at >= date('now', '-6 days')
+        GROUP BY substr(created_at, 1, 10)`).all() as Array<{ day: string; launches: number }>)
+        .map((item) => [item.day, item.launches])
+    );
+    const usage = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - index));
+      const day = date.toISOString().slice(0, 10);
+      return {
+        day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        launches: launchesByDay.get(day) ?? 0
+      };
+    });
     res.json({
       data: {
         profiles: profiles.length,
         onlineProfiles: listRunningProfiles().length,
         proxyHealth: proxies.length ? Math.round((healthy / proxies.length) * 100) : 100,
         recentLaunches,
-        usage: Array.from({ length: 7 }, (_, index) => ({ day: `D-${6 - index}`, launches: Math.max(0, profiles.length - index) }))
+        usage
       }
     });
   });
