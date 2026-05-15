@@ -1,8 +1,9 @@
-import type { SmtpSettings } from "@profilex/shared";
+import type { ProxylineSettings, SmtpSettings } from "@profilex/shared";
 import type { AppDatabase } from "../database/db.js";
 import { decryptSecret, encryptSecret } from "../security/encryption.js";
 
 const SMTP_SETTINGS_KEY = "smtp";
+const PROXYLINE_SETTINGS_KEY = "proxyline";
 
 const defaultSmtpSettings: SmtpSettings = {
   enabled: false,
@@ -53,4 +54,30 @@ function getRawSmtpSettings(db: AppDatabase) {
   const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(SMTP_SETTINGS_KEY);
   if (!row) return { ...defaultSmtpSettings, passwordEncrypted: undefined };
   return { ...defaultSmtpSettings, ...JSON.parse(String(row.value)) };
+}
+
+export function getProxylineSettings(db: AppDatabase, options: { includeApiKey?: boolean } = {}): ProxylineSettings {
+  const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(PROXYLINE_SETTINGS_KEY);
+  if (!row) return {};
+  const parsed = JSON.parse(String(row.value));
+  return {
+    apiKey: options.includeApiKey ? decryptSecret(parsed.apiKeyEncrypted) : undefined,
+    hasApiKey: Boolean(parsed.apiKeyEncrypted)
+  };
+}
+
+export function updateProxylineSettings(db: AppDatabase, patch: Partial<ProxylineSettings>) {
+  const current = getRawProxylineSettings(db);
+  const next = {
+    ...current,
+    apiKeyEncrypted: patch.apiKey === undefined ? current.apiKeyEncrypted : encryptSecret(patch.apiKey.trim())
+  };
+  db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)").run(PROXYLINE_SETTINGS_KEY, JSON.stringify(next));
+  return getProxylineSettings(db);
+}
+
+function getRawProxylineSettings(db: AppDatabase) {
+  const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(PROXYLINE_SETTINGS_KEY);
+  if (!row) return { apiKeyEncrypted: undefined };
+  return JSON.parse(String(row.value));
 }

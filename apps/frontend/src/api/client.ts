@@ -1,4 +1,4 @@
-import type { ApiEnvelope, BrowserProfile, DashboardStats, FingerprintSettings, ProxySettings, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
+import type { ApiEnvelope, BrowserProfile, DashboardStats, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
 
 const apiBase = (window as any).profilex?.apiBaseUrl ?? "/api";
 
@@ -38,6 +38,7 @@ export const api = {
   updateProxy: (id: string, proxy: Partial<ProxySettings>) => request<ProxySettings>(`/proxies/${id}`, { method: "PATCH", body: JSON.stringify(proxy) }),
   deleteProxy: (id: string) => request<{ deleted: boolean }>(`/proxies/${id}`, { method: "DELETE" }),
   importProxies: (text: string) => request<ProxySettings[]>("/proxies/import", { method: "POST", body: JSON.stringify({ text }) }),
+  importProxylineProxies: () => request<{ imported: ProxySettings[]; importedCount: number }>("/proxies/import/proxyline", { method: "POST" }),
   checkProxy: (id: string) => request<ProxySettings>(`/proxies/${id}/check`, { method: "POST" }),
   detectProxyCountry: (id: string) => request<ProxySettings>(`/proxies/${id}/detect-country`, { method: "POST" }),
   randomFingerprint: () => request<FingerprintSettings>("/fingerprints/random", { method: "POST" }),
@@ -56,6 +57,8 @@ export const api = {
     request<{ groupId: string; profileId: string }>(`/team/groups/${groupId}/profiles/${profileId}`, { method: "POST" }),
   smtpSettings: () => request<SmtpSettings>("/settings/smtp"),
   updateSmtpSettings: (settings: Partial<SmtpSettings>) => request<SmtpSettings>("/settings/smtp", { method: "PATCH", body: JSON.stringify(settings) }),
+  proxylineSettings: () => request<ProxylineSettings>("/settings/proxyline"),
+  updateProxylineSettings: (settings: Partial<ProxylineSettings>) => request<ProxylineSettings>("/settings/proxyline", { method: "PATCH", body: JSON.stringify(settings) }),
   testSmtpSettings: (settings: Partial<SmtpSettings>) => request<{ ok: boolean }>("/settings/smtp/test", { method: "POST", body: JSON.stringify(settings) }),
   logs: () => request<any[]>("/logs"),
   pythonWorkerStatus: () => request<{ ok: boolean; url: string; capabilities: string[]; error?: string }>("/worker/python/status")

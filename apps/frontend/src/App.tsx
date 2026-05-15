@@ -1,4 +1,4 @@
-import type { BrowserProfile, FingerprintSettings, ProxySettings, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
+import type { BrowserProfile, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
 import { Activity, Archive, Copy, Database, FolderKanban, Globe2, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Square, Sun, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
@@ -438,13 +438,15 @@ function splitList(value: string) {
 }
 
 function ProxyManager() {
-  const { proxies, createProxy, checkProxy, updateProxy, deleteProxy } = useWorkspaceStore();
+  const { proxies, createProxy, checkProxy, updateProxy, deleteProxy, refresh } = useWorkspaceStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [editingProxy, setEditingProxy] = useState<ProxySettings>();
   const [isProxyDialogOpen, setProxyDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportCandidate[]>([]);
   const [typeFilter, setTypeFilter] = useState<"all" | ProxySettings["protocol"]>("all");
   const [selectedProxyIds, setSelectedProxyIds] = useState<string[]>([]);
+  const [proxylineImporting, setProxylineImporting] = useState(false);
+  const [proxylineImportStatus, setProxylineImportStatus] = useState<string>();
   const [form, setForm] = useState({
     name: "",
     protocol: "http" as ProxySettings["protocol"],
@@ -536,6 +538,20 @@ function ProxyManager() {
 
   const openImportFile = () => fileInputRef.current?.click();
 
+  const importFromProxyline = async () => {
+    setProxylineImporting(true);
+    setProxylineImportStatus(undefined);
+    try {
+      const result = await api.importProxylineProxies();
+      await refresh();
+      setProxylineImportStatus(`Imported ${result.importedCount} new proxies from Proxyline.`);
+    } catch (error) {
+      setProxylineImportStatus(error instanceof Error ? error.message : "Proxyline import failed.");
+    } finally {
+      setProxylineImporting(false);
+    }
+  };
+
   const loadImportFile = async (file?: File) => {
     if (!file) return;
     const fileText = await file.text();
@@ -574,6 +590,9 @@ function ProxyManager() {
             onChange={(event) => void loadImportFile(event.target.files?.[0])}
           />
           <Button variant="primary" icon={<Plus size={16} />} onClick={openProxyCreate}>Add proxy</Button>
+          <Button icon={<RefreshCcw size={16} />} disabled={proxylineImporting} onClick={() => void importFromProxyline()}>
+            {proxylineImporting ? "Importing..." : "Import from Proxyline"}
+          </Button>
           <Button variant="primary" icon={<Upload size={16} />} onClick={openImportFile}>Import TXT/CSV</Button>
         </div>
       </div>
@@ -586,6 +605,7 @@ function ProxyManager() {
           onSave={() => void (editingProxy ? saveProxyEdit() : addProxy())}
         />
       )}
+      {proxylineImportStatus && <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{proxylineImportStatus}</div>}
       {importPreview.length > 0 && (
         <ProxyImportDialog
           items={importPreview}
@@ -1471,9 +1491,13 @@ function Settings() {
   });
   const [smtpPassword, setSmtpPassword] = useState("");
   const [smtpStatus, setSmtpStatus] = useState<string>();
+  const [proxyline, setProxyline] = useState<ProxylineSettings>({});
+  const [proxylineApiKey, setProxylineApiKey] = useState("");
+  const [proxylineStatus, setProxylineStatus] = useState<string>();
 
   useEffect(() => {
     void api.smtpSettings().then(setSmtp);
+    void api.proxylineSettings().then(setProxyline);
   }, []);
 
   const changeTheme = (nextTheme: ThemeMode) => {
@@ -1503,6 +1527,12 @@ function Settings() {
     }
   };
 
+  const saveProxyline = async () => {
+    const saved = await api.updateProxylineSettings(proxylineApiKey ? { apiKey: proxylineApiKey } : {});
+    setProxyline(saved);
+    setProxylineApiKey("");
+    setProxylineStatus("Proxyline API key saved.");
+  };
   return (
     <div className="grid grid-cols-2 gap-4">
       <Panel title="Appearance">
@@ -1540,6 +1570,24 @@ function Settings() {
           </div>
         </div>
         {smtpStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{smtpStatus}</div>}
+      </Panel>
+      <Panel title="Proxyline integration">
+        <div className="space-y-3">
+          <TextInput
+            label={proxyline.hasApiKey ? "API key (saved)" : "API key"}
+            value={proxylineApiKey}
+            onChange={(value) => {
+              setProxylineApiKey(value);
+              setProxylineStatus(undefined);
+            }}
+            type="password"
+          />
+          <div className="text-sm text-gray-500 dark:text-gray-400">Used to import active HTTP and SOCKS5 proxies directly from Proxyline.</div>
+          <div className="flex justify-end">
+            <Button variant="primary" onClick={() => void saveProxyline()}>Save Proxyline key</Button>
+          </div>
+        </div>
+        {proxylineStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{proxylineStatus}</div>}
       </Panel>
       <Panel title="Security">
         <Field label="Encrypted local storage" value="AES-256-GCM enabled" />

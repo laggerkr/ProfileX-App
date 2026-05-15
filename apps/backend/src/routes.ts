@@ -8,8 +8,9 @@ import { realisticFingerprintPreset } from "./services/fingerprintService.js";
 import { logActivity } from "./services/activityService.js";
 import { getPythonWorkerStatus, runPythonPageCheck, runPythonProxyCheck } from "./services/pythonWorkerService.js";
 import { acceptTeamInvitation, assignProfileGroup, createTeamGroup, createTeamMember, deleteTeamGroup, deleteTeamMember, getTeamWorkspace, resendTeamInvitation, updateTeamGroup, updateTeamMember } from "./services/teamService.js";
-import { getSmtpSettings, updateSmtpSettings } from "./services/settingsService.js";
+import { getProxylineSettings, getSmtpSettings, updateProxylineSettings, updateSmtpSettings } from "./services/settingsService.js";
 import { sendInvitationEmail, testSmtpSettings } from "./services/smtpService.js";
+import { importProxylineProxies } from "./services/proxylineService.js";
 import type { ProxySettings } from "@profilex/shared";
 
 export function createRoutes(db: AppDatabase) {
@@ -92,6 +93,13 @@ export function createRoutes(db: AppDatabase) {
   });
   router.delete("/proxies/:id", (req, res) => res.json({ data: { deleted: deleteProxy(db, req.params.id) } }));
   router.post("/proxies/import", (req, res) => res.status(201).json({ data: importProxyLines(db, String(req.body.text ?? "")) }));
+  router.post("/proxies/import/proxyline", async (_req, res, next) => {
+    try {
+      return res.status(201).json({ data: await importProxylineProxies(db) });
+    } catch (error) {
+      return next(error);
+    }
+  });
   router.post("/proxies/:id/check", async (req, res) => res.json({ data: await checkProxy(db, req.params.id) }));
   router.post("/proxies/:id/detect-country", async (req, res) => {
     const proxy = await detectProxyCountry(db, req.params.id);
@@ -156,6 +164,8 @@ export function createRoutes(db: AppDatabase) {
 
   router.get("/settings/smtp", (_req, res) => res.json({ data: getSmtpSettings(db) }));
   router.patch("/settings/smtp", (req, res) => res.json({ data: updateSmtpSettings(db, req.body) }));
+  router.get("/settings/proxyline", (_req, res) => res.json({ data: getProxylineSettings(db) }));
+  router.patch("/settings/proxyline", (req, res) => res.json({ data: updateProxylineSettings(db, req.body) }));
   router.post("/settings/smtp/test", async (req, res, next) => {
     try {
       const settings = { ...getSmtpSettings(db, { includePassword: true }), ...req.body };

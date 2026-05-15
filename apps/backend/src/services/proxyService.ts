@@ -201,19 +201,25 @@ export function importProxyLines(db: AppDatabase, text: string) {
   for (const block of blocks.length ? blocks : [text]) {
     const structured = parseStructuredProxyBlock(block);
     if (structured) {
-      imported.push(...structured.map((proxy) => createProxy(db, proxy)));
+      imported.push(...structured.map((proxy) => createProxyIfMissing(db, proxy)).filter(Boolean) as ProxySettings[]);
       continue;
     }
 
     for (const line of block.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
       const parsed = parseProxyLine(line);
-      if (parsed) imported.push(createProxy(db, parsed));
+      const created = parsed ? createProxyIfMissing(db, parsed) : undefined;
+      if (created) imported.push(created);
     }
   }
 
   return imported;
 }
 
+function createProxyIfMissing(db: AppDatabase, input: Omit<ProxySettings, "id" | "status">) {
+  const existing = db.prepare("SELECT id FROM proxies WHERE protocol = ? AND host = ? AND port = ? AND COALESCE(username, '') = ?")
+    .get(normalizeProxyProtocol(input.protocol), input.host, input.port, input.username ?? "");
+  return existing ? undefined : createProxy(db, input);
+}
 function parseProxyLine(line: string): Omit<ProxySettings, "id" | "status"> | undefined {
   const [protocolHost, credentials] = line.split("@").reverse();
   const protocol = line.startsWith("socks5") ? "socks5" : line.startsWith("https") ? "https" : "http";

@@ -100,6 +100,11 @@ export interface SmtpSettings {
   inviteBaseUrl: string;
 }
 
+export interface ProxylineSettings {
+  apiKey?: string;
+  hasApiKey?: boolean;
+}
+
 export interface TeamWorkspaceData {
   members: TeamMember[];
   groups: Array<TeamGroup & { memberIds: string[]; profileIds: string[] }>;
