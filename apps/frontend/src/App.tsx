@@ -1905,7 +1905,7 @@ function Settings() {
         <div className="space-y-3">
           <div className="rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
             <div className="text-xs text-gray-500">Connected account</div>
-            <div className="mt-1 font-medium">{proxyline.hasApiKey ? (proxyline.accountName || `API key ???? ${proxyline.keySuffix ?? ""}`) : "Not connected"}</div>
+            <div className="mt-1 font-medium">{proxyline.hasApiKey ? (proxyline.accountName || `API key ending in ${proxyline.keySuffix ?? ""}`) : "Not connected"}</div>
             {proxyline.balance !== undefined && <div className="mt-1 text-sm text-gray-500">Balance: {proxyline.balance}</div>}
           </div>
           <TextInput label="Account name" value={proxylineAccountName} onChange={setProxylineAccountName} placeholder="Main Proxyline account" />
