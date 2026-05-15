@@ -136,8 +136,10 @@ function Profiles() {
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Group</th>
+              <th className="px-4 py-3">Notes</th>
+              <th className="px-4 py-3">Tags</th>
+              <th className="px-4 py-3">Browser</th>
               <th className="px-4 py-3">Proxy</th>
-              <th className="px-4 py-3">Startup URLs</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -147,9 +149,22 @@ function Profiles() {
               <tr key={profile.id} className="border-t border-line dark:border-white/10">
                 <td className="px-4 py-3">
                   <div className="font-medium">{profile.name}</div>
-                  <div className="text-xs text-gray-500">{profile.tags.join(", ") || "No tags"}</div>
+                  <div className="text-xs text-gray-500">{profile.operatingSystem ?? "windows"}</div>
                 </td>
                 <td className="px-4 py-3">{profile.group}</td>
+                <td className="max-w-[180px] truncate px-4 py-3 text-gray-500">{profile.notes || "-"}</td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-1">
+                    {profile.tags.length ? profile.tags.map((tag) => (
+                      <span key={tag} className="rounded-lg bg-brand/10 px-2 py-1 text-xs text-brand">{tag}</span>
+                    )) : <span className="text-gray-400">-</span>}
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">
+                    {(profile.browserEngine ?? "chromium") === "firefox" ? "Stealthfox" : "Mimic"}
+                  </span>
+                </td>
                 <td className="px-4 py-3">
                   {profile.proxyId && proxyById.get(profile.proxyId) ? (
                     <div>
@@ -162,7 +177,6 @@ function Profiles() {
                     <span className="text-gray-400">Direct</span>
                   )}
                 </td>
-                <td className="px-4 py-3">{profile.startupUrls.join(", ")}</td>
                 <td className="px-4 py-3">
                   <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">{profile.status}</span>
                 </td>

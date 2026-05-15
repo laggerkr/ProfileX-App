@@ -267,7 +267,7 @@ async function handleRelayClient(client: Socket, proxy: ProxySettings) {
     const request = await readSocket(client, 4);
     if (request[0] !== 5 || request[1] !== 1) throw new Error("Unsupported SOCKS5 request");
     const target = await readSocksTarget(client, request[3]);
-    const upstream = await connectViaAuthenticatedSocks(proxy, target.host, target.port);
+    const upstream = await connectViaAuthenticatedSocks(proxy, target);
     client.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
     client.pipe(upstream).pipe(client);
   } catch {
@@ -275,7 +275,7 @@ async function handleRelayClient(client: Socket, proxy: ProxySettings) {
   }
 }
 
-async function connectViaAuthenticatedSocks(proxy: ProxySettings, host: string, port: number) {
+async function connectViaAuthenticatedSocks(proxy: ProxySettings, target: SocksTarget) {
   const socket = await new Promise<Socket>((resolve, reject) => {
     const upstream = net.createConnection({ host: proxy.host, port: proxy.port });
     upstream.once("connect", () => resolve(upstream));
@@ -289,30 +289,30 @@ async function connectViaAuthenticatedSocks(proxy: ProxySettings, host: string, 
   socket.write(Buffer.concat([Buffer.from([1, username.length]), username, Buffer.from([password.length]), password]));
   const auth = await readSocket(socket, 2);
   if (auth[1] !== 0) throw new Error("SOCKS5 upstream authentication failed");
-  const hostBytes = Buffer.from(host);
-  socket.write(Buffer.concat([Buffer.from([5, 1, 0, 3, hostBytes.length]), hostBytes, Buffer.from([port >> 8, port & 255])]));
+  socket.write(Buffer.concat([Buffer.from([5, 1, 0, target.addressType]), target.addressBytes, target.portBytes]));
   const response = await readSocket(socket, 4);
   if (response[1] !== 0) throw new Error("SOCKS5 upstream connect failed");
   await readSocksTarget(socket, response[3]);
   return socket;
 }
 
-async function readSocksTarget(socket: Socket, addressType: number) {
+type SocksTarget = {
+  addressType: number;
+  addressBytes: Buffer;
+  portBytes: Buffer;
+};
+
+async function readSocksTarget(socket: Socket, addressType: number): Promise<SocksTarget> {
   if (addressType === 1) {
-    const bytes = await readSocket(socket, 4);
-    const portBytes = await readSocket(socket, 2);
-    return { host: [...bytes].join("."), port: portBytes.readUInt16BE(0) };
+    return { addressType, addressBytes: await readSocket(socket, 4), portBytes: await readSocket(socket, 2) };
   }
   if (addressType === 3) {
-    const length = (await readSocket(socket, 1))[0];
-    const host = (await readSocket(socket, length)).toString("utf8");
-    const portBytes = await readSocket(socket, 2);
-    return { host, port: portBytes.readUInt16BE(0) };
+    const length = await readSocket(socket, 1);
+    const host = await readSocket(socket, length[0]);
+    return { addressType, addressBytes: Buffer.concat([length, host]), portBytes: await readSocket(socket, 2) };
   }
   if (addressType === 4) {
-    const bytes = await readSocket(socket, 16);
-    const portBytes = await readSocket(socket, 2);
-    return { host: bytes.toString("hex"), port: portBytes.readUInt16BE(0) };
+    return { addressType, addressBytes: await readSocket(socket, 16), portBytes: await readSocket(socket, 2) };
   }
   throw new Error("Unsupported SOCKS5 address type");
 }
