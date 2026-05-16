@@ -14,6 +14,14 @@ export const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL ?? "15m";
 export const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30);
 export const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+export const DISABLE_PUBLIC_REGISTRATION = process.env.DISABLE_PUBLIC_REGISTRATION === "true";
+export const APP_URL = process.env.APP_URL ?? "profilex://app";
+export const API_URL = process.env.API_URL ?? `http://127.0.0.1:${PORT}`;
+export const SMTP_HOST = process.env.SMTP_HOST;
+export const SMTP_PORT = Number(process.env.SMTP_PORT ?? 587);
+export const SMTP_USER = process.env.SMTP_USER;
+export const SMTP_PASSWORD = process.env.SMTP_PASSWORD;
+export const SMTP_FROM = process.env.SMTP_FROM ?? "invite@profilex.com.ua";
 export const DATA_ROOT =
   process.env.PROFILEX_DATA_ROOT ??
   (IS_PRODUCTION ? path.join(os.homedir(), "ProfileXData") : path.join(process.cwd(), "ProfileXData"));

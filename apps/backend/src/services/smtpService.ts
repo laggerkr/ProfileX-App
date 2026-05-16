@@ -1,4 +1,5 @@
-import type { SmtpSettings, TeamInvitation } from "@profilex/shared";
+import type { Invitation, SmtpSettings, TeamInvitation } from "@profilex/shared";
+import { SMTP_FROM, SMTP_HOST, SMTP_PASSWORD, SMTP_PORT, SMTP_USER } from "../config.js";
 import net from "node:net";
 import tls from "node:tls";
 import type { AppDatabase } from "../database/db.js";
@@ -160,4 +161,11 @@ class SmtpClient {
 
 function formatAddress(email: string, name: string) {
   return name ? `"${name.replace(/"/g, "'")}" <${email}>` : `<${email}>`;
+}
+
+export async function sendProfileInvitationEmail(invitation: Invitation) {
+  if (!SMTP_HOST) return { sent: false, skipped: true, inviteUrl: invitation.inviteUrl, reason: "SMTP is not configured" };
+  const settings: SmtpSettings = { enabled:true, host:SMTP_HOST, port:SMTP_PORT, secure:SMTP_PORT===465, startTls:SMTP_PORT!==465, username:SMTP_USER, password:SMTP_PASSWORD, fromEmail:SMTP_FROM, fromName:"ProfileX", inviteBaseUrl:"" };
+  await sendMail(settings,{to:invitation.email,subject:"You have been invited to ProfileX",text:["You have been invited to ProfileX.","",`Accept invitation: ${invitation.inviteUrl}`].join("\r\n")});
+  return { sent:true, skipped:false, inviteUrl:invitation.inviteUrl };
 }

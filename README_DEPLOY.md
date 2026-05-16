@@ -44,3 +44,6 @@ pm2 status
 - Browser runtime stays on client machines only.
 - `POST /api/profiles/:id/sync` uploads local browser state after profile close.
 - PostgreSQL migrations live in `apps/backend/migrations/001_init_postgres.sql`.
+
+## Auth / SMTP
+Set `DISABLE_PUBLIC_REGISTRATION=true` in production. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `APP_URL` for invitation emails. If SMTP is blank, invites are still created and the admin UI shows the invite URL.

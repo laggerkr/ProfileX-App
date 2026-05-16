@@ -1,22 +1,24 @@
-import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProfileCompatibilityCheck, ProfileSyncPayload, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
+import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProfileCompatibilityCheck, ProfileSyncPayload, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, Invitation, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
 
 const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/api` : ((window as any).profilex?.apiBaseUrl ?? "/api");
 const AUTH_TOKEN_KEY = "profilex.authToken";
 const REFRESH_TOKEN_KEY = "profilex.refreshToken";
 
 export function getAuthToken() {
-  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+  return (window as any).profilex?.getSecureToken?.("access") ?? window.localStorage.getItem(AUTH_TOKEN_KEY);
 }
 
 export function setAuthToken(token?: string) {
-  if (token) window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+  if ((window as any).profilex?.setSecureToken) (window as any).profilex.setSecureToken("access", token);
+  else if (token) window.localStorage.setItem(AUTH_TOKEN_KEY, token);
   else window.localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 export function setRefreshToken(token?: string) {
-  if (token) window.localStorage.setItem(REFRESH_TOKEN_KEY, token);
+  if ((window as any).profilex?.setSecureToken) (window as any).profilex.setSecureToken("refresh", token);
+  else if (token) window.localStorage.setItem(REFRESH_TOKEN_KEY, token);
   else window.localStorage.removeItem(REFRESH_TOKEN_KEY);
 }
-function getRefreshToken() { return window.localStorage.getItem(REFRESH_TOKEN_KEY); }
+function getRefreshToken() { return (window as any).profilex?.getSecureToken?.("refresh") ?? window.localStorage.getItem(REFRESH_TOKEN_KEY); }
 
 export interface EmailResult {
   sent?: boolean;
@@ -51,6 +53,14 @@ export const api = {
   register: (input: { name: string; email: string; password: string }) => request<AuthSession>("/auth/register", { method: "POST", body: JSON.stringify(input) }),
   login: (input: { email: string; password: string }) => request<AuthSession>("/auth/login", { method: "POST", body: JSON.stringify(input) }),
   me: () => request<AuthUser>("/auth/me"),
+  users: () => request<AuthUser[]>("/users"),
+  updateUser: (id: string, user: Partial<AuthUser>) => request<AuthUser>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(user) }),
+  deleteUser: (id: string) => request<{ deleted: boolean }>(`/users/${id}`, { method: "DELETE" }),
+  invitations: () => request<Invitation[]>("/invitations"),
+  createInvitation: (invite: { email: string; role: Role; team_id?: string }) => request<Invitation & { emailResult?: EmailResult }>("/invitations", { method: "POST", body: JSON.stringify(invite) }),
+  acceptInvitation: (token: string, input: { name?: string; password?: string }) => request<{ accepted: boolean; email: string }>(`/invitations/${token}/accept`, { method: "POST", body: JSON.stringify(input) }),
+  revokeInvitation: (id: string) => request<{ deleted: boolean }>(`/invitations/${id}`, { method: "DELETE" }),
+  resendInvitation: (id: string) => request<Invitation & { emailResult?: EmailResult }>(`/invitations/${id}/resend`, { method: "POST" }),
   logout: () => request<{ loggedOut: boolean }>("/auth/logout", { method: "POST", body: JSON.stringify({ refreshToken: getRefreshToken() }) }),
   dashboard: () => request<DashboardStats>("/dashboard"),
   profiles: () => request<BrowserProfile[]>("/profiles"),

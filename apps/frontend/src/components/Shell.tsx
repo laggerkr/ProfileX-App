@@ -11,7 +11,7 @@ const items = [
   ["Proxy Manager", ShieldCheck],
   ["Fingerprints", Fingerprint],
   ["Groups", FolderKanban],
-  ["Members", UserPlus],
+  ["Team / Users", UserPlus],
   ["Logs", Activity],
   ["Automation API", Bot],
   ["Settings", Settings],

@@ -1,4 +1,4 @@
-export type Role = "admin" | "manager" | "client";
+export type Role = "owner" | "admin" | "manager" | "member" | "client";
 export type Theme = "light" | "dark" | "system";
 export type ProxyProtocol = "http" | "https" | "socks5";
 export type ProfileStatus = "ready" | "running" | "archived";
@@ -160,8 +160,15 @@ export interface AuthUser {
   name: string;
   email: string;
   role: Role;
+  organizationId?: string;
+  lastLoginAt?: string;
+  status?: "active" | "invited" | "disabled";
   createdAt: string;
 }
+
+export interface Organization { id: string; name: string; createdAt: string; }
+export interface Team { id: string; organizationId: string; name: string; createdAt: string; }
+export interface Invitation { id: string; organizationId: string; email: string; role: Role; teamId?: string; status: "pending" | "accepted" | "expired" | "revoked"; inviteUrl: string; expiresAt: string; acceptedAt?: string; createdAt: string; }
 
 export interface ProfileSyncPayload {
   cookies?: unknown[];

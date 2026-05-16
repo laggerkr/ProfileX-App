@@ -195,3 +195,61 @@ CREATE TABLE IF NOT EXISTS proxy_assignments (
   sticky_until TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_proxy_assignments_profile ON proxy_assignments(profile_id);
+
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('owner','admin','manager','member','client'));
+CREATE TABLE IF NOT EXISTS organizations (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO organizations (id,name,created_at) VALUES ('org-default','Company Workspace',now()) ON CONFLICT (id) DO NOTHING;
+CREATE TABLE IF NOT EXISTS organization_members (
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('owner','admin','manager','member','client')),
+  status TEXT NOT NULL DEFAULT 'active',
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (organization_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS teams (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (organization_id,name)
+);
+CREATE TABLE IF NOT EXISTS team_members_v2 (
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (team_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS invitations (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('owner','admin','manager','member','client')),
+  team_id TEXT REFERENCES teams(id) ON DELETE SET NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('pending','accepted','expired','revoked')),
+  invited_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  accepted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS organization_id TEXT REFERENCES organizations(id) ON DELETE CASCADE;
+ALTER TABLE proxies ADD COLUMN IF NOT EXISTS organization_id TEXT REFERENCES organizations(id) ON DELETE CASCADE;
+UPDATE profiles SET organization_id='org-default' WHERE organization_id IS NULL;
+UPDATE proxies SET organization_id='org-default' WHERE organization_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_profiles_org ON profiles(organization_id);
+CREATE INDEX IF NOT EXISTS idx_proxies_org ON proxies(organization_id);

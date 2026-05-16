@@ -21,22 +21,22 @@ function mapProfile(row: ProfileRow): BrowserProfile {
 }
 const profileSelect = `SELECT p.*, g.name AS profile_group_name, l.user_id AS locked_by_user_id, l.acquired_at AS locked_at
   FROM profiles p LEFT JOIN profile_groups g ON g.id = p.profile_group_id LEFT JOIN profile_locks l ON l.profile_id = p.id`;
-export async function listProfiles(db: AppDatabase) { return (await db.query(`${profileSelect} ORDER BY p.created_at ASC`)).map(mapProfile); }
+export async function listProfiles(db: AppDatabase, organizationId?: string) { return (await db.query(`${profileSelect} ${organizationId ? "WHERE p.organization_id=$1" : ""} ORDER BY p.created_at ASC`, organizationId ? [organizationId] : [])).map(mapProfile); }
 export async function listProfilesForUser(db: AppDatabase, user: AuthUser) {
-  if (user.role === "admin") return listProfiles(db);
+  if (user.role === "owner" || user.role === "admin") return listProfiles(db, user.organizationId);
   if (user.role === "manager") return (await db.query(`${profileSelect}
     JOIN team_group_members tgm ON tgm.group_id = p.profile_group_id
-    JOIN team_members tm ON tm.id = tgm.member_id WHERE tm.email = $1 ORDER BY p.created_at ASC`, [user.email])).map(mapProfile);
+    JOIN team_members tm ON tm.id = tgm.member_id WHERE tm.email = $1 AND p.organization_id=$2 ORDER BY p.created_at ASC`, [user.email, user.organizationId])).map(mapProfile);
   return (await db.query(`${profileSelect}
-    JOIN profile_assignments pa ON pa.profile_id = p.id WHERE pa.user_id = $1 ORDER BY p.created_at ASC`, [user.id])).map(mapProfile);
+    JOIN profile_assignments pa ON pa.profile_id = p.id WHERE pa.user_id = $1 AND p.organization_id=$2 ORDER BY p.created_at ASC`, [user.id, user.organizationId])).map(mapProfile);
 }
-export async function getProfile(db: AppDatabase, id: string) { const row = await db.one(`${profileSelect} WHERE p.id = $1`, [id]); return row ? mapProfile(row) : undefined; }
-export async function createProfile(db: AppDatabase, input: Partial<BrowserProfile>, actorId?: string) {
+export async function getProfile(db: AppDatabase, id: string, organizationId?: string) { const row = await db.one(`${profileSelect} WHERE p.id = $1 ${organizationId ? "AND p.organization_id=$2" : ""}`, organizationId ? [id, organizationId] : [id]); return row ? mapProfile(row) : undefined; }
+export async function createProfile(db: AppDatabase, input: Partial<BrowserProfile>, actorId?: string, organizationId="org-default") {
   const now = new Date().toISOString();
   const group = await ensureGroup(db, input.group ?? "Default");
   const profile: BrowserProfile = { id: nanoid(), workspaceId: "workspace-default", name: input.name ?? "New Workspace", tags: input.tags ?? [], group: group.name, notes: input.notes, proxyId: input.proxyId, proxyProtocol: input.proxyProtocol ?? "http", tabBehavior: input.tabBehavior ?? "custom", operatingSystem: input.operatingSystem ?? "windows", browserEngine: input.browserEngine ?? "chromium", storageMode: input.storageMode ?? "cloud", fingerprint: input.fingerprint ?? realisticFingerprintPreset(), startupUrls: input.startupUrls ?? ["https://browserleaks.com/ip"], extensions: input.extensions ?? [], status: "ready", createdAt: now, updatedAt: now, version: 1 };
-  await db.exec(`INSERT INTO profiles (id, workspace_id, name, tags, profile_group_id, notes, proxy_id, proxy_protocol, tab_behavior, operating_system, browser_engine, storage_mode, fingerprint, startup_urls, extensions, status, created_at, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, [profile.id, profile.workspaceId, profile.name, JSON.stringify(profile.tags), group.id, profile.notes, profile.proxyId, profile.proxyProtocol, profile.tabBehavior, profile.operatingSystem, profile.browserEngine, profile.storageMode, JSON.stringify(profile.fingerprint), JSON.stringify(profile.startupUrls), JSON.stringify(profile.extensions), profile.status, now, now]);
+  await db.exec(`INSERT INTO profiles (id, workspace_id, organization_id, name, tags, profile_group_id, notes, proxy_id, proxy_protocol, tab_behavior, operating_system, browser_engine, storage_mode, fingerprint, startup_urls, extensions, status, created_at, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, [profile.id, profile.workspaceId, organizationId, profile.name, JSON.stringify(profile.tags), group.id, profile.notes, profile.proxyId, profile.proxyProtocol, profile.tabBehavior, profile.operatingSystem, profile.browserEngine, profile.storageMode, JSON.stringify(profile.fingerprint), JSON.stringify(profile.startupUrls), JSON.stringify(profile.extensions), profile.status, now, now]);
   await logActivity(db, "profile.created", profile.name, actorId); return profile;
 }
 export async function updateProfile(db: AppDatabase, id: string, patch: Partial<BrowserProfile> & { expectedVersion?: number }, actorId?: string) {

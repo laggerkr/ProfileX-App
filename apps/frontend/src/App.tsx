@@ -1,4 +1,4 @@
-import type { AuthSession, AuthUser, BrowserProfile, FingerprintSettings, ProfileCompatibilityCheck, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
+import type { AuthSession, AuthUser, BrowserProfile, Invitation, FingerprintSettings, ProfileCompatibilityCheck, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
 import { Activity, Apple, Chrome, Copy, Database, Fingerprint, FolderKanban, Globe2, KeyRound, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
@@ -32,6 +32,8 @@ export function App() {
     setAuthUser(undefined);
   };
 
+  const inviteToken = window.location.pathname.match(/\/invite\/([^/]+)/)?.[1];
+  if (inviteToken) return <AcceptInvitationPage token={inviteToken} />;
   if (!authReady) return <div className="flex min-h-screen items-center justify-center bg-panel text-sm text-gray-500 dark:bg-[#111315]">Loading...</div>;
   if (!authUser) return <LoginPage onAuthenticated={(session) => { setAuthToken(session.token); setRefreshToken(session.refreshToken); setAuthUser(session.user); }} />;
   if (isLocked) return <AppLockGate onUnlock={() => setLocked(false)} />;
@@ -45,7 +47,7 @@ export function App() {
         {activePage === "Proxy Manager" && <ProxyManager />}
         {activePage === "Fingerprints" && <Fingerprints />}
         {activePage === "Groups" && <GroupsPage />}
-        {activePage === "Members" && <MembersPage />}
+        {activePage === "Team / Users" && <MembersPage currentUser={authUser} />}
         {activePage === "Logs" && <Logs />}
         {activePage === "Automation API" && <AutomationApi />}
         {activePage === "Settings" && <Settings />}
@@ -1835,153 +1837,53 @@ function InviteStatus({ invite }: { invite: { url: string; email: string; result
   );
 }
 
-function MembersPage() {
-  const [team, setTeam] = useState<TeamWorkspaceData>({ members: [], groups: [], invitations: [] });
-  const [memberForm, setMemberForm] = useState({ name: "", email: "", role: "client" as Role, groupIds: [] as string[] });
-  const [editingMemberId, setEditingMemberId] = useState<string>();
-  const [lastInvite, setLastInvite] = useState<{ url: string; email: string; result?: EmailResult }>();
-  const loadTeam = async () => setTeam(await api.team());
-
-  useEffect(() => { void loadTeam(); }, []);
-
-  const inviteMember = async () => {
-    if (!memberForm.name.trim() || !memberForm.email.trim()) return;
-    if (editingMemberId) {
-      await api.updateTeamMember(editingMemberId, {
-        name: memberForm.name.trim(),
-        email: memberForm.email.trim(),
-        role: memberForm.role,
-        groupIds: memberForm.groupIds
-      });
-      setEditingMemberId(undefined);
-      setMemberForm({ name: "", email: "", role: "client", groupIds: [] });
-      await loadTeam();
-      return;
-    }
-    const member = await api.createTeamMember({
-      name: memberForm.name.trim(),
-      email: memberForm.email.trim(),
-      role: memberForm.role,
-      groupIds: memberForm.groupIds
-    });
-    setLastInvite({ url: member.inviteUrl, email: member.email, result: member.emailResult });
-    setMemberForm({ name: "", email: "", role: "client", groupIds: [] });
-    await loadTeam();
+function MembersPage({ currentUser }: { currentUser: AuthUser }) {
+  const [users, setUsers] = useState<AuthUser[]>([]);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [form, setForm] = useState({ email: "", role: "member" as Role });
+  const [lastInvite, setLastInvite] = useState<string>();
+  const canManage = currentUser.role === "owner" || currentUser.role === "admin";
+  const load = async () => {
+    if (!canManage) return;
+    const [nextUsers, nextInvites] = await Promise.all([api.users(), api.invitations()]);
+    setUsers(nextUsers); setInvitations(nextInvites);
   };
-
-  const startMemberEdit = (memberId: string) => {
-    const member = team.members.find((item) => item.id === memberId);
-    if (!member) return;
-    setEditingMemberId(member.id);
-    setMemberForm({
-      name: member.name,
-      email: member.email,
-      role: member.role,
-      groupIds: team.groups.filter((group) => group.memberIds.includes(member.id)).map((group) => group.id)
-    });
-    setLastInvite(undefined);
+  useEffect(() => { void load(); }, [canManage]);
+  const invite = async () => {
+    const next = await api.createInvitation(form);
+    setLastInvite(next.inviteUrl);
+    setForm({ email: "", role: "member" });
+    await load();
   };
+  if (!canManage) return <Panel title="Team / Users"><div className="text-sm text-gray-500">You do not have permission to manage users.</div></Panel>;
+  return <section className="space-y-4">
+    <Panel title="Invite user">
+      <div className="grid grid-cols-[1fr_180px_auto] items-end gap-3">
+        <TextInput label="Email" value={form.email} onChange={(email) => setForm((v) => ({ ...v, email }))} />
+        <SelectInput label="Role" value={form.role} onChange={(role) => setForm((v) => ({ ...v, role: role as Role }))} options={["owner","admin","manager","member","client"].map((value) => ({ value, label: value }))} />
+        <Button variant="primary" onClick={() => void invite()}>Invite user</Button>
+      </div>
+      {lastInvite && <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">Invite link: <code>{lastInvite}</code></div>}
+    </Panel>
+    <Panel title="Users">
+      <div className="space-y-2">{users.map((user) => <div key={user.id} className="grid grid-cols-[1fr_160px_150px_160px_auto] items-center gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
+        <div><div className="font-medium">{user.name}</div><div className="text-xs text-gray-500">{user.email}</div></div>
+        <SelectInput label="" value={user.role} onChange={(role) => void api.updateUser(user.id,{ role: role as Role }).then(load)} options={["owner","admin","manager","member","client"].map((value) => ({ value, label: value }))} />
+        <span>{user.status ?? "active"}</span><span className="text-xs text-gray-500">{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : "Never"}</span>
+        <Button icon={<Trash2 size={15} />} onClick={() => void api.deleteUser(user.id).then(load)}>Delete</Button>
+      </div>)}</div>
+    </Panel>
+    <Panel title="Pending invitations">
+      <div className="space-y-2">{invitations.filter((i) => i.status === "pending").map((invite) => <div key={invite.id} className="grid grid-cols-[1fr_120px_180px_auto] items-center gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
+        <div>{invite.email}</div><div>{invite.role}</div><div className="text-xs text-gray-500">Expires {new Date(invite.expiresAt).toLocaleDateString()}</div><div className="flex gap-2"><Button onClick={() => void api.resendInvitation(invite.id).then((next) => { setLastInvite(next.inviteUrl); return load(); })}>Resend</Button><Button onClick={() => void api.revokeInvitation(invite.id).then(load)}>Revoke</Button></div>
+      </div>)}</div>
+    </Panel>
+  </section>;
+}
 
-  const cancelMemberEdit = () => {
-    setEditingMemberId(undefined);
-    setMemberForm({ name: "", email: "", role: "client", groupIds: [] });
-  };
-
-  const toggleMemberGroup = (groupId: string) => {
-    setMemberForm((current) => ({
-      ...current,
-      groupIds: current.groupIds.includes(groupId) ? current.groupIds.filter((id) => id !== groupId) : [...current.groupIds, groupId]
-    }));
-  };
-
-  const groupNamesForMember = (memberId: string) =>
-    team.groups.filter((group) => group.memberIds.includes(memberId)).map((group) => group.name).join(", ") || "No groups";
-
-  const invitationByMemberId = useMemo(
-    () => new Map(team.invitations.filter((invite) => invite.status === "pending").map((invite) => [invite.memberId, invite])),
-    [team.invitations]
-  );
-
-  return (
-    <section className="space-y-4">
-      <Panel title={editingMemberId ? "Edit member" : "Invite member"}>
-        <div className="grid grid-cols-[1fr_1fr_150px_auto] items-end gap-3">
-          <TextInput label="Name" value={memberForm.name} onChange={(value) => setMemberForm((current) => ({ ...current, name: value }))} />
-          <TextInput label="Email" value={memberForm.email} onChange={(value) => setMemberForm((current) => ({ ...current, email: value }))} />
-          <SelectInput
-            label="Role"
-            value={memberForm.role}
-            onChange={(value) => setMemberForm((current) => ({ ...current, role: value as Role }))}
-            options={[
-              { value: "admin", label: "Admin" },
-              { value: "manager", label: "Manager" },
-              { value: "client", label: "Client" }
-            ]}
-          />
-          <div className="flex gap-2">
-            {editingMemberId && <Button onClick={cancelMemberEdit}>Cancel</Button>}
-            <Button variant="primary" icon={<UserPlus size={16} />} onClick={() => void inviteMember()}>{editingMemberId ? "Save" : "Send invite"}</Button>
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {team.groups.map((group) => (
-            <button
-              key={group.id}
-              className={`rounded-lg border px-3 py-2 text-sm transition ${
-                memberForm.groupIds.includes(group.id)
-                  ? "border-ink bg-ink text-white dark:border-white dark:bg-white dark:text-ink"
-                  : "border-line bg-white text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:bg-[#202328] dark:text-gray-300"
-              }`}
-              onClick={() => toggleMemberGroup(group.id)}
-            >
-              {group.name}
-            </button>
-          ))}
-        </div>
-        {lastInvite && <InviteStatus invite={lastInvite} />}
-      </Panel>
-      <Panel title="Members">
-        <div className="space-y-3">
-          {team.members.map((member) => {
-            const invite = invitationByMemberId.get(member.id);
-            return (
-              <div key={member.id} className="grid grid-cols-[1fr_140px_1fr_auto_auto_auto] items-center gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
-                <div>
-                  <div className="font-medium">{member.name}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">{member.email}</div>
-                </div>
-                <span className="rounded-lg bg-gray-100 px-2 py-1 text-center text-xs dark:bg-white/10">{member.role}</span>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{groupNamesForMember(member.id)}</div>
-                <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">{member.active ? "active" : "invited"}</span>
-                <Button
-                  disabled={member.active}
-                  onClick={() => void api.resendTeamInvite(member.id).then((nextInvite) => {
-                    setLastInvite({ url: nextInvite.inviteUrl, email: nextInvite.email, result: nextInvite.emailResult });
-                    return loadTeam();
-                  })}
-                >
-                  {invite ? "Resend" : "Invite"}
-                </Button>
-                <div className="flex justify-end gap-2">
-                  <Button icon={<Pencil size={15} />} onClick={() => startMemberEdit(member.id)}>Edit</Button>
-                  <Button
-                    icon={<Trash2 size={15} />}
-                    onClick={() => {
-                      if (confirm(`Delete member "${member.name}"?`)) {
-                        void api.deleteTeamMember(member.id).then(loadTeam);
-                      }
-                    }}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Panel>
-    </section>
-  );
+function AcceptInvitationPage({ token }: { token: string }) {
+  const [name,setName]=useState(""); const [password,setPassword]=useState(""); const [message,setMessage]=useState<string>();
+  return <div className="flex min-h-screen items-center justify-center bg-panel p-6 dark:bg-[#111315]"><div className="w-full max-w-md rounded-2xl border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]"><h1 className="text-xl font-semibold">Accept invitation</h1><div className="mt-4 space-y-3"><input className="h-10 w-full rounded-lg border border-line bg-transparent px-3" placeholder="Name" value={name} onChange={(e)=>setName(e.target.value)} /><input className="h-10 w-full rounded-lg border border-line bg-transparent px-3" placeholder="Password" type="password" value={password} onChange={(e)=>setPassword(e.target.value)} /><Button variant="primary" className="w-full justify-center" onClick={()=>void api.acceptInvitation(token,{name,password}).then(()=>setMessage("Invitation accepted. You can sign in now.")).catch((e)=>setMessage(normalizeApiError(e)))}>Accept invitation</Button>{message&&<div className="text-sm text-gray-500">{message}</div>}</div></div></div>;
 }
 
 function Logs() {
@@ -2552,6 +2454,7 @@ function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: AuthSessio
           <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
           {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
           <Button className="w-full justify-center" variant="primary" disabled={busy}>{busy ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}</Button>
+          {mode === "login" && <button type="button" className="w-full text-sm text-blue-500" onClick={() => alert("Password recovery will be added next.")}>Forgot password?</button>}
         </form>
       </div>
     </div>

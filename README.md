@@ -43,3 +43,9 @@ npm run start:backend
 - bcrypt password hashes
 - Helmet, CORS allowlist, auth/general rate limits, 2 MB request limit
 - Electron `contextIsolation`, sandboxed renderer, validated IPC, CSP
+
+## Authentication and invitations
+- Roles: `owner`, `admin`, `manager`, `member`, `client`.
+- Set `DISABLE_PUBLIC_REGISTRATION=true` to allow onboarding only through invites.
+- Admins use `Team / Users` to invite users; links remain visible when SMTP is not configured.
+- Invite links open `/invite/:token`; tokens are stored hashed and expire after 7 days.

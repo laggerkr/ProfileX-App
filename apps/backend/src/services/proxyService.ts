@@ -36,8 +36,8 @@ function toPublicProxy(proxy: ProxySettings): ProxySettings {
   };
 }
 
-export async function listProxies(db: AppDatabase) {
-  return (await db.query("SELECT * FROM proxies ORDER BY name ASC")).map((row) => mapProxy(row, { includePassword: true }));
+export async function listProxies(db: AppDatabase, organizationId?: string) {
+  return (await db.query(`SELECT * FROM proxies ${organizationId ? "WHERE organization_id=$1" : ""} ORDER BY name ASC`, organizationId ? [organizationId] : [])).map((row) => mapProxy(row, { includePassword: true }));
 }
 
 export async function getProxy(db: AppDatabase, id?: string) {
@@ -46,7 +46,7 @@ export async function getProxy(db: AppDatabase, id?: string) {
   return row ? mapProxy(row, { includePassword: true }) : undefined;
 }
 
-export async function createProxy(db: AppDatabase, input: Omit<ProxySettings, "id" | "status">) {
+export async function createProxy(db: AppDatabase, input: Omit<ProxySettings, "id" | "status">, organizationId="org-default") {
   if (!input.host || !Number.isFinite(input.port)) {
     throw new Error("Proxy host and port are required");
   }
@@ -72,7 +72,7 @@ export async function createProxy(db: AppDatabase, input: Omit<ProxySettings, "i
     id: nanoid(),
     status: "unknown"
   };
-  await db.exec("INSERT INTO proxies (id, name, protocol, host, port, http_port, socks5_port, username, password_encrypted, proxy_group, country, country_code, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)", [proxy.id, proxy.name, proxy.protocol, proxy.host, proxy.port, proxy.httpPort, proxy.socks5Port, proxy.username, encryptSecret(proxy.password), proxy.group, proxy.country, proxy.countryCode, proxy.status]);
+  await db.exec("INSERT INTO proxies (id, organization_id, name, protocol, host, port, http_port, socks5_port, username, password_encrypted, proxy_group, country, country_code, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)", [proxy.id, organizationId, proxy.name, proxy.protocol, proxy.host, proxy.port, proxy.httpPort, proxy.socks5Port, proxy.username, encryptSecret(proxy.password), proxy.group, proxy.country, proxy.countryCode, proxy.status]);
   await logActivity(db, "proxy.created", proxy.name);
   return toPublicProxy(proxy);
 }
