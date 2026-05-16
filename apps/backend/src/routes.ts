@@ -13,6 +13,7 @@ import { sendInvitationEmail, testSmtpSettings } from "./services/smtpService.js
 import { getProxylineAccountSummary, importProxylineProxies } from "./services/proxylineService.js";
 import type { ProxySettings } from "@profilex/shared";
 import { getUserByToken, loginUser, logoutUser, registerUser } from "./services/authService.js";
+import { createRdpConnection, deleteRdpConnection, launchRdpConnection, listRdpConnections, updateRdpConnection } from "./services/rdpService.js";
 
 export function createRoutes(db: AppDatabase) {
   const router = Router();
@@ -120,6 +121,20 @@ export function createRoutes(db: AppDatabase) {
     } catch (error) {
       return next(error);
     }
+  });
+
+  router.get("/rdp", (_req, res) => res.json({ data: listRdpConnections(db) }));
+  router.post("/rdp", (req, res) => res.status(201).json({ data: createRdpConnection(db, req.body) }));
+  router.patch("/rdp/:id", (req, res) => {
+    const connection = updateRdpConnection(db, req.params.id, req.body);
+    if (!connection) return res.status(404).json({ error: "RDP connection not found" });
+    return res.json({ data: connection });
+  });
+  router.delete("/rdp/:id", (req, res) => res.json({ data: { deleted: deleteRdpConnection(db, req.params.id) } }));
+  router.post("/rdp/:id/launch", (req, res) => {
+    const connection = launchRdpConnection(db, req.params.id);
+    if (!connection) return res.status(404).json({ error: "RDP connection not found" });
+    return res.json({ data: connection });
   });
 
   router.get("/proxies", (_req, res) => res.json({ data: listProxies(db) }));

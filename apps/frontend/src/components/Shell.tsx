@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { Activity, Bot, Fingerprint, FolderKanban, Gauge, KeyRound, ListChecks, MonitorCog, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserPlus } from "lucide-react";
+import { Activity, Bot, Fingerprint, FolderKanban, Gauge, KeyRound, ListChecks, MonitorCog, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserPlus, MonitorPlay } from "lucide-react";
 import { useState } from "react";
 import type { AuthUser } from "@profilex/shared";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
@@ -7,6 +7,7 @@ import { useWorkspaceStore } from "../store/useWorkspaceStore";
 const items = [
   ["Dashboard", Gauge],
   ["Profiles", MonitorCog],
+  ["RDP", MonitorPlay],
   ["Proxy Manager", ShieldCheck],
   ["Fingerprints", Fingerprint],
   ["Groups", FolderKanban],

@@ -1,4 +1,4 @@
-import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
+import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
 
 const apiBase = (window as any).profilex?.apiBaseUrl ?? "/api";
 const AUTH_TOKEN_KEY = "profilex.authToken";
@@ -48,6 +48,11 @@ export const api = {
   launchProfile: (id: string) => request<{ profileId: string }>(`/profiles/${id}/launch`, { method: "POST", body: JSON.stringify({}) }),
   stopProfile: (id: string) => request<{ profileId: string }>(`/profiles/${id}/stop`, { method: "POST" }),
   browserStatus: () => request<{ ok: boolean; engine: string; runningProfiles: number; executablePath?: string; error?: string }>("/browser/status"),
+  rdpConnections: () => request<RdpConnection[]>("/rdp"),
+  createRdpConnection: (connection: Omit<RdpConnection, "id" | "createdAt" | "updatedAt" | "lastLaunchedAt" | "hasPassword">) => request<RdpConnection>("/rdp", { method: "POST", body: JSON.stringify(connection) }),
+  updateRdpConnection: (id: string, connection: Partial<RdpConnection>) => request<RdpConnection>(`/rdp/${id}`, { method: "PATCH", body: JSON.stringify(connection) }),
+  deleteRdpConnection: (id: string) => request<{ deleted: boolean }>(`/rdp/${id}`, { method: "DELETE" }),
+  launchRdpConnection: (id: string) => request<RdpConnection>(`/rdp/${id}/launch`, { method: "POST" }),
   proxies: () => request<ProxySettings[]>("/proxies"),
   createProxy: (proxy: Omit<ProxySettings, "id" | "status">) => request<ProxySettings>("/proxies", { method: "POST", body: JSON.stringify(proxy) }),
   updateProxy: (id: string, proxy: Partial<ProxySettings>) => request<ProxySettings>(`/proxies/${id}`, { method: "PATCH", body: JSON.stringify(proxy) }),

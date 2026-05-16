@@ -30,6 +30,19 @@ export interface ProxySettings {
   latencyMs?: number;
 }
 
+export interface RdpConnection {
+  id: string;
+  name: string;
+  host: string;
+  username: string;
+  password?: string;
+  hasPassword?: boolean;
+  domain?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastLaunchedAt?: string;
+}
+
 export interface FingerprintSettings {
   userAgent: string;
   timezone: string;

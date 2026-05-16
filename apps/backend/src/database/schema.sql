@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS proxies (
   latency_ms INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS rdp_connections (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  host TEXT NOT NULL,
+  username TEXT NOT NULL,
+  password_encrypted TEXT,
+  domain TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  last_launched_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS team_members (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id),

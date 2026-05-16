@@ -1,4 +1,4 @@
-import type { AuthUser, BrowserProfile, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
+import type { AuthUser, BrowserProfile, FingerprintSettings, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
 import { Activity, Apple, Chrome, Copy, Database, Fingerprint, FolderKanban, Globe2, KeyRound, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
@@ -40,6 +40,7 @@ export function App() {
       <div className="screen-enter">
         {activePage === "Dashboard" && <Dashboard />}
         {activePage === "Profiles" && <Profiles />}
+        {activePage === "RDP" && <RdpPage />}
         {activePage === "Proxy Manager" && <ProxyManager />}
         {activePage === "Fingerprints" && <Fingerprints />}
         {activePage === "Groups" && <GroupsPage />}
@@ -746,6 +747,104 @@ function splitList(value: string) {
     .split(/[\n,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+
+function RdpPage() {
+  const [connections, setConnections] = useState<RdpConnection[]>([]);
+  const [form, setForm] = useState({ name: "", host: "", username: "", password: "", domain: "" });
+  const [editing, setEditing] = useState<RdpConnection>();
+  const [status, setStatus] = useState<string>();
+
+  const refreshRdp = async () => setConnections(await api.rdpConnections());
+  useEffect(() => { void refreshRdp(); }, []);
+
+  const save = async () => {
+    if (editing) {
+      await api.updateRdpConnection(editing.id, {
+        name: form.name,
+        host: form.host,
+        username: form.username,
+        domain: form.domain || undefined,
+        ...(form.password ? { password: form.password } : {})
+      });
+      setStatus("RDP connection updated.");
+    } else {
+      await api.createRdpConnection({
+        name: form.name,
+        host: form.host,
+        username: form.username,
+        password: form.password,
+        domain: form.domain || undefined
+      });
+      setStatus("RDP connection added.");
+    }
+    setForm({ name: "", host: "", username: "", password: "", domain: "" });
+    setEditing(undefined);
+    await refreshRdp();
+  };
+
+  const startEdit = (connection: RdpConnection) => {
+    setEditing(connection);
+    setForm({ name: connection.name, host: connection.host, username: connection.username, password: "", domain: connection.domain ?? "" });
+  };
+
+  const launch = async (connection: RdpConnection) => {
+    try {
+      await api.launchRdpConnection(connection.id);
+      setStatus(`Opening ${connection.name}...`);
+      await refreshRdp();
+    } catch (error) {
+      setStatus(normalizeApiError(error));
+    }
+  };
+
+  return (
+    <section className="space-y-4">
+      <Panel title={editing ? "Edit RDP" : "Add RDP"}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <TextInput label="Name" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
+          <TextInput label="IP / host" value={form.host} onChange={(value) => setForm((current) => ({ ...current, host: value }))} />
+          <TextInput label="Login" value={form.username} onChange={(value) => setForm((current) => ({ ...current, username: value }))} />
+          <TextInput label={editing?.hasPassword ? "Password (saved)" : "Password"} value={form.password} type="password" onChange={(value) => setForm((current) => ({ ...current, password: value }))} />
+          <TextInput label="Domain" value={form.domain} onChange={(value) => setForm((current) => ({ ...current, domain: value }))} />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          {editing && <Button onClick={() => { setEditing(undefined); setForm({ name: "", host: "", username: "", password: "", domain: "" }); }}>Cancel</Button>}
+          <Button variant="primary" onClick={() => void save()}>{editing ? "Save RDP" : "Add RDP"}</Button>
+        </div>
+        {status && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{status}</div>}
+      </Panel>
+      <Panel title="Remote desktops">
+        <div className="overflow-hidden rounded-xl border border-line dark:border-white/10">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-[#202328]">
+              <tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">IP / host</th><th className="px-3 py-2">Login</th><th className="px-3 py-2">Domain</th><th className="px-3 py-2">Last launch</th><th className="px-3 py-2 text-right">Actions</th></tr>
+            </thead>
+            <tbody>
+              {connections.map((connection) => (
+                <tr key={connection.id} className="border-t border-line dark:border-white/10">
+                  <td className="px-3 py-2 font-medium">{connection.name}</td>
+                  <td className="px-3 py-2">{connection.host}</td>
+                  <td className="px-3 py-2">{connection.username}</td>
+                  <td className="px-3 py-2">{connection.domain ?? "-"}</td>
+                  <td className="px-3 py-2">{connection.lastLaunchedAt ? new Date(connection.lastLaunchedAt).toLocaleString() : "-"}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex justify-end gap-2">
+                      <Button onClick={() => void launch(connection)} icon={<Play size={15} />}>Open</Button>
+                      <Button onClick={() => startEdit(connection)} icon={<Pencil size={15} />} />
+                      <Button onClick={() => void api.deleteRdpConnection(connection.id).then(refreshRdp)} icon={<Trash2 size={15} />} />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!connections.length && <tr><td className="px-3 py-6 text-center text-gray-500" colSpan={6}>No RDP connections yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </section>
+  );
 }
 
 function ProxyManager() {
