@@ -1823,6 +1823,7 @@ function Settings() {
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [securityStatus, setSecurityStatus] = useState<string>();
+  const [operations, setOperations] = useState<OperationsSettings>(() => getOperationsSettings());
 
   useEffect(() => {
     void api.smtpSettings().then(setSmtp);
@@ -1914,8 +1915,17 @@ function Settings() {
     saveAppLock({ enabled: false, defaultMethod: "pin" });
     setSecurityStatus("App lock disabled.");
   };
+
+  const updateOperations = (key: keyof OperationsSettings, value: boolean) => {
+    setOperations((current) => {
+      const next = { ...current, [key]: value };
+      window.localStorage.setItem(OPERATIONS_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
   return (
-    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 xl:grid-cols-2">
+    <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
       <Panel title="Appearance">
         <div className="grid grid-cols-2 gap-3">
           <Button className="justify-center" variant={theme === "light" ? "primary" : "secondary"} icon={<Sun size={16} />} onClick={() => changeTheme("light")}>
@@ -1928,24 +1938,30 @@ function Settings() {
         <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">Theme preference is saved locally for this app.</div>
       </Panel>
       <Panel title="SMTP invites">
-        <div className="grid grid-cols-2 gap-3">
-          <CheckboxInput label="Enable email invites" checked={smtp.enabled} onChange={(value) => updateSmtpForm("enabled", value)} />
-          <CheckboxInput label="Secure TLS" checked={smtp.secure} onChange={(value) => updateSmtpForm("secure", value)} />
-          <TextInput label="SMTP host" value={smtp.host} onChange={(value) => updateSmtpForm("host", value)} />
-          <TextInput label="Port" value={String(smtp.port)} onChange={(value) => updateSmtpForm("port", Number(value))} />
-          <TextInput label="Username" value={smtp.username ?? ""} onChange={(value) => updateSmtpForm("username", value)} />
+        <div className="grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <CheckboxInput label="Enable email invites" checked={smtp.enabled} onChange={(value) => updateSmtpForm("enabled", value)} />
+            <CheckboxInput label="Secure TLS" checked={smtp.secure} onChange={(value) => updateSmtpForm("secure", value)} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem]">
+            <TextInput label="SMTP host" value={smtp.host} onChange={(value) => updateSmtpForm("host", value)} />
+            <TextInput label="Port" value={String(smtp.port)} onChange={(value) => updateSmtpForm("port", Number(value))} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextInput label="Username" value={smtp.username ?? ""} onChange={(value) => updateSmtpForm("username", value)} />
           <TextInput
             label={smtp.hasPassword ? "Password (saved)" : "Password"}
             value={smtpPassword}
             onChange={setSmtpPassword}
             type="password"
           />
-          <TextInput label="From email" value={smtp.fromEmail} onChange={(value) => updateSmtpForm("fromEmail", value)} />
-          <TextInput label="From name" value={smtp.fromName} onChange={(value) => updateSmtpForm("fromName", value)} />
-          <div className="col-span-2">
-            <TextInput label="Invite base URL" value={smtp.inviteBaseUrl} onChange={(value) => updateSmtpForm("inviteBaseUrl", value)} />
           </div>
-          <div className="col-span-2 flex justify-end gap-2">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextInput label="From email" value={smtp.fromEmail} onChange={(value) => updateSmtpForm("fromEmail", value)} />
+            <TextInput label="From name" value={smtp.fromName} onChange={(value) => updateSmtpForm("fromName", value)} />
+          </div>
+          <TextInput label="Invite base URL" value={smtp.inviteBaseUrl} onChange={(value) => updateSmtpForm("inviteBaseUrl", value)} />
+          <div className="flex justify-end gap-2">
             <Button onClick={() => void testSmtp()}>Test SMTP</Button>
             <Button variant="primary" onClick={() => void saveSmtp()}>Save SMTP</Button>
           </div>
@@ -1966,16 +1982,18 @@ function Settings() {
               </div>
             ) : <div className="mt-1 font-medium">Not connected</div>}
           </div>
-          <TextInput label="Account name" value={proxylineAccountName} onChange={setProxylineAccountName} placeholder="Main Proxyline account" />
-          <TextInput
-            label={proxyline.hasApiKey ? "API key (saved)" : "API key"}
-            value={proxylineApiKey}
-            onChange={(value) => {
-              setProxylineApiKey(value);
-              setProxylineStatus(undefined);
-            }}
-            type="password"
-          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextInput label="Account name" value={proxylineAccountName} onChange={setProxylineAccountName} placeholder="Main Proxyline account" />
+            <TextInput
+              label={proxyline.hasApiKey ? "API key (saved)" : "API key"}
+              value={proxylineApiKey}
+              onChange={(value) => {
+                setProxylineApiKey(value);
+                setProxylineStatus(undefined);
+              }}
+              type="password"
+            />
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Used to import active HTTP and SOCKS5 proxies directly from Proxyline.</div>
           <div className="flex justify-end gap-2">
             <Button variant="primary" onClick={() => void saveProxyline()}>Save Proxyline key</Button>
@@ -2033,15 +2051,41 @@ function Settings() {
         {securityStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{securityStatus}</div>}
       </Panel>
       <Panel title="Operations">
-        <Field label="Auto updates" value="Installer ready" />
-        <Field label="Telemetry" value="Off by default" />
-        <Field label="Hotkeys" value="Configurable" />
-        <Field label="Cloud sync" value="Encrypted sync adapter placeholder" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <CheckboxInput label="Check updates automatically" checked={operations.autoUpdates} onChange={(value) => updateOperations("autoUpdates", value)} />
+          <CheckboxInput label="Launch with Windows" checked={operations.launchOnStartup} onChange={(value) => updateOperations("launchOnStartup", value)} />
+          <CheckboxInput label="Anonymous diagnostics" checked={operations.telemetry} onChange={(value) => updateOperations("telemetry", value)} />
+          <CheckboxInput label="Enable cloud sync" checked={operations.cloudSync} onChange={(value) => updateOperations("cloudSync", value)} />
+          <CheckboxInput label="Global profile hotkeys" checked={operations.hotkeys} onChange={(value) => updateOperations("hotkeys", value)} />
+        </div>
+        <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">
+          Preferences are stored locally on this device.
+        </div>
       </Panel>
     </div>
   );
 }
 
+
+type OperationsSettings = {
+  autoUpdates: boolean;
+  launchOnStartup: boolean;
+  telemetry: boolean;
+  cloudSync: boolean;
+  hotkeys: boolean;
+};
+
+const OPERATIONS_STORAGE_KEY = "profilex.operations";
+
+function getOperationsSettings(): OperationsSettings {
+  try {
+    const saved = window.localStorage.getItem(OPERATIONS_STORAGE_KEY);
+    if (!saved) throw new Error("missing");
+    return { autoUpdates: true, launchOnStartup: false, telemetry: false, cloudSync: false, hotkeys: true, ...JSON.parse(saved) };
+  } catch {
+    return { autoUpdates: true, launchOnStartup: false, telemetry: false, cloudSync: false, hotkeys: true };
+  }
+}
 
 type ThemeMode = "light" | "dark";
 

@@ -2,7 +2,6 @@ import { clsx } from "clsx";
 import { Activity, Bot, Fingerprint, FolderKanban, Gauge, KeyRound, ListChecks, MonitorCog, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
-import logoUrl from "../assets/logo-mark.png";
 
 const items = [
   ["Dashboard", Gauge],
@@ -20,8 +19,8 @@ const items = [
 
 function ProfileXLogo() {
   return (
-    <div className="h-10 w-10 overflow-hidden rounded-2xl bg-white shadow-soft">
-      <img src={logoUrl} alt="ProfileX" className="h-full w-full object-contain" />
+    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-ink text-sm font-bold text-white shadow-soft dark:bg-white dark:text-ink">
+      PX
     </div>
   );
 }
