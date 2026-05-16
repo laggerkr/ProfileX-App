@@ -14,9 +14,9 @@ export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 export const DATA_ROOT =
   process.env.PROFILEX_DATA_ROOT ??
   (IS_PRODUCTION ? path.join(os.homedir(), "ProfileXData") : path.join(process.cwd(), "ProfileXData"));
-export const DB_PATH = path.join(DATA_ROOT, "profilex.sqlite");
 export const MASTER_KEY = process.env.PROFILEX_MASTER_KEY ?? (IS_PRODUCTION ? "" : "dev-only-change-me-profilex-master-key");
 export const PYTHON_WORKER_URL = process.env.PROFILEX_PYTHON_WORKER_URL ?? "http://127.0.0.1:4391";
 
+if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
 if (IS_PRODUCTION && !JWT_SECRET) throw new Error("JWT_SECRET is required in production");
 if (IS_PRODUCTION && !MASTER_KEY) throw new Error("PROFILEX_MASTER_KEY is required in production");

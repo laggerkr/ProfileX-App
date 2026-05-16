@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./shared" },
+    { "path": "./browser-engine" },
+    { "path": "./apps/backend" },
+    { "path": "./apps/frontend" }
+  ]
+}

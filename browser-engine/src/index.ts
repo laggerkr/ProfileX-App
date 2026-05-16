@@ -1,5 +1,5 @@
 import { chromium, firefox, type BrowserContext, type Page } from "playwright";
-import type { BrowserProfile, LaunchProfileRequest, ProxySettings } from "@profilex/shared";
+import type { BrowserProfile, LaunchProfileRequest, ProfileSyncPayload, ProxySettings } from "@profilex/shared";
 import fs from "node:fs";
 import path from "node:path";
 import net, { type Server, type Socket } from "node:net";
@@ -9,6 +9,7 @@ export interface LaunchProfileOptions {
   proxy?: ProxySettings;
   request: LaunchProfileRequest;
   dataRoot: string;
+  browserState?: ProfileSyncPayload;
 }
 
 export interface RunningProfile {
@@ -40,7 +41,7 @@ export async function getBrowserEngineStatus() {
   };
 }
 
-export async function launchProfile({ profile, proxy, request, dataRoot }: LaunchProfileOptions) {
+export async function launchProfile({ profile, proxy, request, dataRoot, browserState }: LaunchProfileOptions) {
   if (runningProfiles.has(profile.id)) {
     return { profileId: profile.id, alreadyRunning: true };
   }
@@ -102,6 +103,13 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
       : undefined,
     permissions: fingerprint.geolocationAccess === "allow" ? ["geolocation"] : []
   });
+
+  if (browserState?.cookies?.length) await context.addCookies(browserState.cookies as any[]);
+
+  await context.addInitScript((state) => {
+    for (const [key, value] of Object.entries(state.localStorage ?? {})) localStorage.setItem(key, String(value));
+    for (const [key, value] of Object.entries(state.sessionStorage ?? {})) sessionStorage.setItem(key, String(value));
+  }, browserState ?? {});
 
   await context.addInitScript((profileName) => {
     const applyProfileTitle = () => {
@@ -179,10 +187,23 @@ export async function launchProfile({ profile, proxy, request, dataRoot }: Launc
 export async function stopProfile(profileId: string) {
   const running = runningProfiles.get(profileId);
   if (!running) return { profileId, stopped: false };
+  const state = await exportProfileState(profileId);
   await running.context.close();
   running.relay?.close();
   runningProfiles.delete(profileId);
-  return { profileId, stopped: true };
+  return { profileId, stopped: true, state };
+}
+export async function exportProfileState(profileId: string): Promise<ProfileSyncPayload | undefined> {
+  const running = runningProfiles.get(profileId);
+  if (!running) return undefined;
+  const cookies = await running.context.cookies();
+  const storageState = await running.context.storageState();
+  const page = running.context.pages()[0];
+  const stores = page ? await page.evaluate(() => ({
+    localStorage: Object.fromEntries(Object.entries(localStorage)),
+    sessionStorage: Object.fromEntries(Object.entries(sessionStorage))
+  })).catch(() => ({ localStorage: {}, sessionStorage: {} })) : { localStorage: {}, sessionStorage: {} };
+  return { cookies, storageState, ...stores, sessionMetadata: { exportedAt: new Date().toISOString() } };
 }
 
 function normalizeProxyProtocol(protocol: ProxySettings["protocol"]) {

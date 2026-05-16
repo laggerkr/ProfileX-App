@@ -36,27 +36,26 @@ function toPublicProxy(proxy: ProxySettings): ProxySettings {
   };
 }
 
-export function listProxies(db: AppDatabase) {
-  return db.prepare("SELECT * FROM proxies ORDER BY name ASC").all().map((row) => mapProxy(row, { includePassword: true }));
+export async function listProxies(db: AppDatabase) {
+  return (await db.query("SELECT * FROM proxies ORDER BY name ASC")).map((row) => mapProxy(row, { includePassword: true }));
 }
 
-export function getProxy(db: AppDatabase, id?: string) {
+export async function getProxy(db: AppDatabase, id?: string) {
   if (!id) return undefined;
-  const row = db.prepare("SELECT * FROM proxies WHERE id = ?").get(id);
+  const row = await db.one("SELECT * FROM proxies WHERE id = $1", [id]);
   return row ? mapProxy(row, { includePassword: true }) : undefined;
 }
 
-export function createProxy(db: AppDatabase, input: Omit<ProxySettings, "id" | "status">) {
+export async function createProxy(db: AppDatabase, input: Omit<ProxySettings, "id" | "status">) {
   if (!input.host || !Number.isFinite(input.port)) {
     throw new Error("Proxy host and port are required");
   }
   const protocol = normalizeProxyProtocol(input.protocol);
-  const existing = db.prepare("SELECT id FROM proxies WHERE host = ? AND COALESCE(username, '') = ?")
-    .get(input.host, input.username ?? "") as { id: string } | undefined;
+  const existing = await db.one<{ id: string }>("SELECT id FROM proxies WHERE host = $1 AND COALESCE(username, '') = $2", [input.host, input.username ?? ""]);
   if (existing) {
-    const current = getProxy(db, existing.id);
+    const current = await getProxy(db, existing.id);
     if (current) {
-      const updated = updateProxy(db, existing.id, {
+      const updated = await updateProxy(db, existing.id, {
         name: input.name || current.name,
         httpPort: input.httpPort ?? current.httpPort ?? (protocol === "http" ? input.port : undefined),
         socks5Port: input.socks5Port ?? current.socks5Port ?? (protocol === "socks5" ? input.port : undefined)
@@ -73,52 +72,35 @@ export function createProxy(db: AppDatabase, input: Omit<ProxySettings, "id" | "
     id: nanoid(),
     status: "unknown"
   };
-  db.prepare(
-    "INSERT INTO proxies (id, name, protocol, host, port, http_port, socks5_port, username, password_encrypted, proxy_group, country, country_code, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(proxy.id, proxy.name, proxy.protocol, proxy.host, proxy.port, proxy.httpPort, proxy.socks5Port, proxy.username, encryptSecret(proxy.password), proxy.group, proxy.country, proxy.countryCode, proxy.status);
-  logActivity(db, "proxy.created", proxy.name);
+  await db.exec("INSERT INTO proxies (id, name, protocol, host, port, http_port, socks5_port, username, password_encrypted, proxy_group, country, country_code, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)", [proxy.id, proxy.name, proxy.protocol, proxy.host, proxy.port, proxy.httpPort, proxy.socks5Port, proxy.username, encryptSecret(proxy.password), proxy.group, proxy.country, proxy.countryCode, proxy.status]);
+  await logActivity(db, "proxy.created", proxy.name);
   return toPublicProxy(proxy);
 }
 
-export function updateProxy(db: AppDatabase, id: string, patch: Partial<ProxySettings>) {
-  const current = getProxy(db, id);
+export async function updateProxy(db: AppDatabase, id: string, patch: Partial<ProxySettings>) {
+  const current = await getProxy(db, id);
   if (!current) return undefined;
   const next = { ...current, ...patch, protocol: patch.protocol ? normalizeProxyProtocol(patch.protocol) : current.protocol };
   if (!next.host || !Number.isFinite(next.port)) {
     throw new Error("Proxy host and port are required");
   }
-  db.prepare(
-    "UPDATE proxies SET name=?, protocol=?, host=?, port=?, http_port=?, socks5_port=?, username=?, password_encrypted=?, proxy_group=?, country=?, country_code=?, status=? WHERE id=?"
-  ).run(
-    next.name,
-    next.protocol,
-    next.host,
-    next.port,
-    next.httpPort,
-    next.socks5Port,
-    next.username,
-    patch.password === undefined ? db.prepare("SELECT password_encrypted FROM proxies WHERE id = ?").get(id)?.password_encrypted : encryptSecret(next.password),
-    next.group,
-    next.country,
-    next.countryCode,
-    next.status ?? "unknown",
-    id
-  );
-  logActivity(db, "proxy.updated", next.name);
-  const updated = getProxy(db, id);
+  const stored = await db.one<any>("SELECT password_encrypted FROM proxies WHERE id=$1", [id]);
+  await db.exec("UPDATE proxies SET name=$1, protocol=$2, host=$3, port=$4, http_port=$5, socks5_port=$6, username=$7, password_encrypted=$8, proxy_group=$9, country=$10, country_code=$11, status=$12 WHERE id=$13", [next.name,next.protocol,next.host,next.port,next.httpPort,next.socks5Port,next.username,patch.password===undefined?stored?.password_encrypted:encryptSecret(next.password),next.group,next.country,next.countryCode,next.status ?? "unknown",id]);
+  await logActivity(db, "proxy.updated", next.name);
+  const updated = await getProxy(db, id);
   return updated ? toPublicProxy(updated) : undefined;
 }
 
-export function deleteProxy(db: AppDatabase, id: string) {
-  const proxy = getProxy(db, id);
-  db.prepare("UPDATE profiles SET proxy_id = NULL WHERE proxy_id = ?").run(id);
-  db.prepare("DELETE FROM proxies WHERE id = ?").run(id);
-  if (proxy) logActivity(db, "proxy.deleted", proxy.name);
+export async function deleteProxy(db: AppDatabase, id: string) {
+  const proxy = await getProxy(db, id);
+  await db.exec("UPDATE profiles SET proxy_id = NULL WHERE proxy_id = $1", [id]);
+  await db.exec("DELETE FROM proxies WHERE id = $1", [id]);
+  if (proxy) await logActivity(db, "proxy.deleted", proxy.name);
   return Boolean(proxy);
 }
 
 export async function checkProxy(db: AppDatabase, id: string, options: { detectCountry?: boolean } = {}) {
-  const proxy = getProxy(db, id);
+  const proxy = await getProxy(db, id);
   if (!proxy) return undefined;
   const target = getProxyCheckTarget(proxy);
   const started = Date.now();
@@ -126,16 +108,7 @@ export async function checkProxy(db: AppDatabase, id: string, options: { detectC
   const latency = Date.now() - started;
   const checkedAt = new Date().toISOString();
   const geo = options.detectCountry === false ? undefined : await detectProxyCountryByHost(proxy.host).catch(() => undefined);
-  db.prepare("UPDATE proxies SET protocol=?, port=?, status=?, latency_ms=?, last_checked_at=?, country=?, country_code=? WHERE id=?").run(
-    target.protocol,
-    target.port,
-    status,
-    latency,
-    checkedAt,
-    geo?.country ?? proxy.country,
-    geo?.countryCode ?? proxy.countryCode,
-    id
-  );
+  await db.exec("UPDATE proxies SET protocol=$1,port=$2,status=$3,latency_ms=$4,last_checked_at=$5,country=$6,country_code=$7 WHERE id=$8", [target.protocol,target.port,status,latency,checkedAt,geo?.country ?? proxy.country,geo?.countryCode ?? proxy.countryCode,id]);
   return toPublicProxy({ ...proxy, ...target, ...geo, status, latencyMs: latency, lastCheckedAt: checkedAt });
 }
 
@@ -156,10 +129,10 @@ async function checkProxyTarget(proxy: ProxySettings) {
 }
 
 export async function detectProxyCountry(db: AppDatabase, id: string) {
-  const proxy = getProxy(db, id);
+  const proxy = await getProxy(db, id);
   if (!proxy) return undefined;
   const geo = await detectProxyCountryByHost(proxy.host);
-  db.prepare("UPDATE proxies SET country=?, country_code=? WHERE id=?").run(geo.country, geo.countryCode, id);
+  await db.exec("UPDATE proxies SET country=$1, country_code=$2 WHERE id=$3", [geo.country, geo.countryCode, id]);
   return toPublicProxy({ ...proxy, ...geo });
 }
 
@@ -233,7 +206,7 @@ async function checkHttpProxyTunnel(proxy: ProxySettings) {
   });
 }
 
-export function importProxyLines(db: AppDatabase, text: string) {
+export async function importProxyLines(db: AppDatabase, text: string) {
   const blocks = text
     .split(/\n\s*\n/)
     .map((block) => block.trim())
@@ -243,13 +216,13 @@ export function importProxyLines(db: AppDatabase, text: string) {
   for (const block of blocks.length ? blocks : [text]) {
     const structured = parseStructuredProxyBlock(block);
     if (structured) {
-      imported.push(...structured.map((proxy) => createProxyIfMissing(db, proxy)).filter(Boolean) as ProxySettings[]);
+      imported.push(...(await Promise.all(structured.map((proxy) => createProxyIfMissing(db, proxy)))).filter(Boolean) as ProxySettings[]);
       continue;
     }
 
     for (const line of block.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
       const parsed = parseProxyLine(line);
-      const created = parsed ? createProxyIfMissing(db, parsed) : undefined;
+      const created = parsed ? await createProxyIfMissing(db, parsed) : undefined;
       if (created) imported.push(created);
     }
   }
@@ -257,13 +230,12 @@ export function importProxyLines(db: AppDatabase, text: string) {
   return imported;
 }
 
-function createProxyIfMissing(db: AppDatabase, input: Omit<ProxySettings, "id" | "status">) {
-  const existing = db.prepare("SELECT id FROM proxies WHERE host = ? AND COALESCE(username, '') = ?")
-    .get(input.host, input.username ?? "") as { id: string } | undefined;
+async function createProxyIfMissing(db: AppDatabase, input: Omit<ProxySettings, "id" | "status">) {
+  const existing = await db.one<{ id: string }>("SELECT id FROM proxies WHERE host = $1 AND COALESCE(username, '') = $2", [input.host, input.username ?? ""]);
   if (!existing) return createProxy(db, input);
-  const current = getProxy(db, existing.id);
+  const current = await getProxy(db, existing.id);
   if (!current) return undefined;
-  updateProxy(db, existing.id, {
+  await updateProxy(db, existing.id, {
     httpPort: input.httpPort ?? current.httpPort ?? (input.protocol === "http" ? input.port : undefined),
     socks5Port: input.socks5Port ?? current.socks5Port ?? (input.protocol === "socks5" ? input.port : undefined)
   });

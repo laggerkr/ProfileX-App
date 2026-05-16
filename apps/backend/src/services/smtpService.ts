@@ -7,7 +7,7 @@ import { getSmtpSettings } from "./settingsService.js";
 type SmtpSocket = net.Socket | tls.TLSSocket;
 
 export async function sendInvitationEmail(db: AppDatabase, invitation: TeamInvitation, displayName: string) {
-  const settings = getSmtpSettings(db, { includePassword: true });
+  const settings = await getSmtpSettings(db, { includePassword: true });
   if (!settings.enabled) return { sent: false, skipped: true, reason: "SMTP is disabled" };
   if (!settings.host || !settings.fromEmail) return { sent: false, skipped: true, reason: "SMTP settings are incomplete" };
 

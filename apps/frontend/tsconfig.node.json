@@ -4,7 +4,11 @@
     "outDir": "dist-electron",
     "rootDir": "electron",
     "module": "NodeNext",
-    "moduleResolution": "NodeNext"
+    "moduleResolution": "NodeNext",
+    "paths": {
+      "@profilex/shared": ["../../shared/dist/index.d.ts"],
+      "@profilex/browser-engine": ["../../browser-engine/dist/index.d.ts"]
+    }
   },
   "include": ["electron"]
 }

@@ -209,6 +209,7 @@ function Profiles() {
           result={compatibilityResult}
           loading={compatibilityLoading}
           onClose={() => { setCompatibilityProfile(undefined); setCompatibilityResult(undefined); }}
+          onResult={setCompatibilityResult}
         />
       )}
       {editingTagsProfile && (
@@ -321,7 +322,7 @@ function Profiles() {
 }
 
 
-function ProfileCompatibilityDialog({ profile, result, loading, onClose }: { profile: BrowserProfile; result?: ProfileCompatibilityCheck; loading: boolean; onClose: () => void }) {
+function ProfileCompatibilityDialog({ profile, result, loading, onClose, onResult }: { profile: BrowserProfile; result?: ProfileCompatibilityCheck; loading: boolean; onClose: () => void; onResult: (result: ProfileCompatibilityCheck) => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6 backdrop-blur-sm">
       <div className="w-full max-w-xl rounded-2xl border border-line bg-white shadow-soft dark:border-white/10 dark:bg-[#17191c]">
@@ -334,7 +335,7 @@ function ProfileCompatibilityDialog({ profile, result, loading, onClose }: { pro
             <Button
               onClick={() => {
                 void api.autoFixProfileCompatibility(profile.id)
-                  .then(setCompatibilityResult)
+                  .then(onResult)
                   .catch((error) => alert(normalizeApiError(error)));
               }}
             >
@@ -556,7 +557,7 @@ function ProfileEditorDialog({
     const preset = getOperatingSystemPreset(value as BrowserProfile["operatingSystem"]);
     setForm((current) => ({
       ...current,
-      operatingSystem: value,
+      operatingSystem: value as NonNullable<BrowserProfile["operatingSystem"]>,
       userAgent: preset.userAgent,
       platform: preset.platform,
       osCpu: preset.osCpu

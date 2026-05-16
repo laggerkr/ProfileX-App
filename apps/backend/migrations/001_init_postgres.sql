@@ -1,3 +1,9 @@
+CREATE TABLE IF NOT EXISTS workspaces (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  owner_email TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -8,12 +14,14 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE TABLE IF NOT EXISTS profile_groups (
   id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   name TEXT NOT NULL UNIQUE,
   description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   tags JSONB NOT NULL DEFAULT '[]',
   profile_group_id TEXT REFERENCES profile_groups(id),
@@ -24,12 +32,15 @@ CREATE TABLE IF NOT EXISTS profiles (
   operating_system TEXT,
   browser_engine TEXT,
   storage_mode TEXT,
+  fingerprint JSONB NOT NULL DEFAULT '{}',
   startup_urls JSONB NOT NULL DEFAULT '[]',
   extensions JSONB NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'ready',
+  version INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_launched_at TIMESTAMPTZ
+  last_launched_at TIMESTAMPTZ,
+  last_sync_at TIMESTAMPTZ
 );
 CREATE TABLE IF NOT EXISTS profile_assignments (
   profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
@@ -55,7 +66,16 @@ CREATE TABLE IF NOT EXISTS proxies (
 );
 CREATE TABLE IF NOT EXISTS cookies (
   profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
-  payload JSONB NOT NULL,
+  payload JSONB NOT NULL DEFAULT '[]',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS browser_states (
+  profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+  local_storage JSONB NOT NULL DEFAULT '{}',
+  session_storage JSONB NOT NULL DEFAULT '{}',
+  storage_state JSONB,
+  session_metadata JSONB NOT NULL DEFAULT '{}',
+  browser_state JSONB NOT NULL DEFAULT '{}',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS fingerprints (
@@ -63,14 +83,86 @@ CREATE TABLE IF NOT EXISTS fingerprints (
   payload JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS profile_locks (
+  profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_id TEXT,
+  acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS active_sessions (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_id TEXT,
+  ip_address TEXT,
+  user_agent TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS audit_logs (
   id TEXT PRIMARY KEY,
   actor_id TEXT REFERENCES users(id),
   action TEXT NOT NULL,
   target TEXT NOT NULL,
+  ip_address TEXT,
+  device_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS browser_launch_logs (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id),
+  ip_address TEXT,
+  device_id TEXT,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS session_logs (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  event TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value JSONB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS rdp_connections (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  host TEXT NOT NULL,
+  username TEXT NOT NULL,
+  password_encrypted TEXT,
+  domain TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_launched_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS team_members (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true
+);
+CREATE TABLE IF NOT EXISTS team_group_members (
+  group_id TEXT NOT NULL REFERENCES profile_groups(id) ON DELETE CASCADE,
+  member_id TEXT NOT NULL REFERENCES team_members(id) ON DELETE CASCADE,
+  PRIMARY KEY (group_id, member_id)
+);
+CREATE TABLE IF NOT EXISTS team_invitations (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  member_id TEXT NOT NULL REFERENCES team_members(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  invited_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_profiles_group ON profiles(profile_group_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_updated ON profiles(updated_at);
+CREATE INDEX IF NOT EXISTS idx_assignments_user ON profile_assignments(user_id);

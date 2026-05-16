@@ -4,6 +4,8 @@ import rateLimit from "express-rate-limit";
 import { CORS_ORIGIN, HOST, PORT } from "./config.js";
 import { openDatabase } from "./database/db.js";
 import { createRoutes } from "./routes.js";
+import { attachRealtime } from "./realtime.js";
+import http from "node:http";
 
 const app = express();
 const db = await openDatabase();
@@ -18,4 +20,6 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   console.error(error);
   res.status(500).json({ error: error instanceof Error ? error.message : "Unexpected API error" });
 });
-app.listen(PORT, HOST, () => console.log(`ProfileX API listening on http://${HOST}:${PORT}`));
+const server = http.createServer(app);
+attachRealtime(server);
+server.listen(PORT, HOST, () => console.log(`ProfileX API listening on http://${HOST}:${PORT}`));

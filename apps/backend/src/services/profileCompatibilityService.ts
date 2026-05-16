@@ -30,7 +30,7 @@ const countryLanguages: Record<string, string[]> = {
 };
 
 export async function autoFixProfileCompatibility(db: AppDatabase, profileId: string) {
-  const profile = getProfile(db, profileId);
+  const profile = await getProfile(db, profileId);
   if (!profile) return undefined;
   const proxy = profile.proxyId ? await resolveProxy(db, profile.proxyId) : undefined;
   const defaults = proxy?.countryCode ? countryDefaults[proxy.countryCode] : undefined;
@@ -39,12 +39,12 @@ export async function autoFixProfileCompatibility(db: AppDatabase, profileId: st
     ...(defaults ? { timezone: defaults.timezone, timezoneMode: "mask" as const, language: defaults.language, languageMode: "mask" as const } : {}),
     webRtcPolicy: "disabled" as const
   };
-  const updated = updateProfile(db, profile.id, { fingerprint });
+  const updated = await updateProfile(db, profile.id, { fingerprint });
   return updated ? checkProfileCompatibility(db, profile.id) : undefined;
 }
 
 export async function checkProfileCompatibility(db: AppDatabase, profileId: string): Promise<ProfileCompatibilityCheck | undefined> {
-  const profile = getProfile(db, profileId);
+  const profile = await getProfile(db, profileId);
   if (!profile) return undefined;
   const proxy = profile.proxyId ? await resolveProxy(db, profile.proxyId) : undefined;
   const checks = [
@@ -61,7 +61,7 @@ export async function checkProfileCompatibility(db: AppDatabase, profileId: stri
 }
 
 async function resolveProxy(db: AppDatabase, id: string) {
-  let proxy = getProxy(db, id);
+  let proxy = await getProxy(db, id);
   if (!proxy) return undefined;
   if (proxy.status === "unknown" || !proxy.lastCheckedAt) proxy = await checkProxy(db, id) ?? proxy;
   if (!proxy.countryCode) proxy = await detectProxyCountry(db, id).catch(() => proxy) ?? proxy;

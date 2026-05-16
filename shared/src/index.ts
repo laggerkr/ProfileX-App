@@ -48,6 +48,10 @@ export interface RdpConnection {
   createdAt: string;
   updatedAt: string;
   lastLaunchedAt?: string;
+  version?: number;
+  lastSyncAt?: string;
+  lockedByUserId?: string;
+  lockedAt?: string;
 }
 
 export interface FingerprintSettings {
@@ -96,6 +100,10 @@ export interface BrowserProfile {
   createdAt: string;
   updatedAt: string;
   lastLaunchedAt?: string;
+  version?: number;
+  lastSyncAt?: string;
+  lockedByUserId?: string;
+  lockedAt?: string;
 }
 
 export interface Workspace {
@@ -160,6 +168,9 @@ export interface ProfileSyncPayload {
   localStorage?: Record<string, string>;
   sessionStorage?: Record<string, string>;
   storageState?: unknown;
+  sessionMetadata?: Record<string, unknown>;
+  browserState?: Record<string, unknown>;
+  expectedVersion?: number;
 }
 
 export interface AuthSession {

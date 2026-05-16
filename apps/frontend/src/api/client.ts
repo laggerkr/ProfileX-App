@@ -1,4 +1,4 @@
-import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProfileCompatibilityCheck, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
+import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProfileCompatibilityCheck, ProfileSyncPayload, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
 
 const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/api` : ((window as any).profilex?.apiBaseUrl ?? "/api");
 const AUTH_TOKEN_KEY = "profilex.authToken";
@@ -44,7 +44,10 @@ export const api = {
   updateProfile: (id: string, profile: Partial<BrowserProfile>) => request<BrowserProfile>(`/profiles/${id}`, { method: "PATCH", body: JSON.stringify(profile) }),
   deleteProfile: (id: string) => request<{ deleted: boolean }>(`/profiles/${id}`, { method: "DELETE" }),
   assignProfile: (id: string, userId: string) => request<{ profileId: string; userId: string }>(`/profiles/${id}/assign`, { method: "POST", body: JSON.stringify({ userId }) }),
-  syncProfile: (id: string, payload: unknown) => request<{ profileId: string; syncedAt: string }>(`/profiles/${id}/sync`, { method: "POST", body: JSON.stringify(payload) }),
+  profileState: (id: string) => request<ProfileSyncPayload>(`/profiles/${id}/state`),
+  syncProfile: (id: string, payload: unknown) => request<{ profileId: string; syncedAt: string; version: number }>(`/profiles/${id}/sync`, { method: "POST", body: JSON.stringify(payload) }),
+  lockProfile: (id: string) => request<{ acquired: boolean; sessionId?: string }>(`/profiles/${id}/lock`, { method: "POST", body: JSON.stringify({}) }),
+  unlockProfile: (id: string, force = false) => request<{ released: boolean }>(`/profiles/${id}/unlock`, { method: "POST", body: JSON.stringify({ force }) }),
   profileGroups: () => request<any[]>("/profile-groups"),
   createProfileGroup: (group: { name: string; description?: string }) => request<any>("/profile-groups", { method: "POST", body: JSON.stringify(group) }),
   cloneProfile: (id: string) => request<BrowserProfile>(`/profiles/${id}/clone`, { method: "POST" }),

@@ -1,6 +1,2 @@
-import { contextBridge } from "electron";
-
-contextBridge.exposeInMainWorld("profilex", {
-  platform: process.platform,
-  apiBaseUrl: "http://127.0.0.1:4387/api"
-});
+import { contextBridge, ipcRenderer } from "electron";
+contextBridge.exposeInMainWorld("profilex",{platform:process.platform,apiBaseUrl:"http://127.0.0.1:4387/api",launchProfile:(args:unknown)=>ipcRenderer.invoke("profilex:launch-profile",args),stopProfile:(id:string)=>ipcRenderer.invoke("profilex:stop-profile",id),exportProfileState:(id:string)=>ipcRenderer.invoke("profilex:export-profile-state",id)});

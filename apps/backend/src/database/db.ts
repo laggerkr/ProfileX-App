@@ -1,158 +1,69 @@
-import fs from "node:fs";
-import path from "node:path";
-import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
-import { ADMIN_EMAIL, ADMIN_PASSWORD, DB_PATH, DATA_ROOT } from "../config.js";
-import crypto from "node:crypto";
-
-const schema = fs.readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
+import fs from "node:fs/promises";
+import bcrypt from "bcryptjs";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { ADMIN_EMAIL, ADMIN_PASSWORD, DATABASE_URL } from "../config.js";
 
 export interface AppDatabase {
-  exec: (sql: string) => void;
-  prepare: (sql: string) => {
-    run: (...params: unknown[]) => void;
-    get: (...params: unknown[]) => any | undefined;
-    all: (...params: unknown[]) => any[];
-  };
+  query<T extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<T[]>;
+  one<T extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<T | undefined>;
+  exec(sql: string, params?: unknown[]): Promise<void>;
+  transaction<T>(work: (db: AppDatabase) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
 }
 
 export async function openDatabase(): Promise<AppDatabase> {
-  fs.mkdirSync(DATA_ROOT, { recursive: true });
-  const SQL = await initSqlJs();
-  const file = fs.existsSync(DB_PATH) ? fs.readFileSync(DB_PATH) : undefined;
-  const sqlDb = new SQL.Database(file);
-  const db = createPersistedDatabase(sqlDb);
-  db.exec(schema);
-  migrate(db);
-  seed(db);
+  if (!DATABASE_URL) throw new Error("DATABASE_URL is required. PostgreSQL is the only supported backend runtime.");
+  const pool = new Pool({ connectionString: DATABASE_URL });
+  const db = createDatabase(pool);
+  const migration = await fs.readFile(new URL("../../migrations/001_init_postgres.sql", import.meta.url), "utf8");
+  await db.exec(migration);
+  await seed(db);
   return db;
 }
 
-function createPersistedDatabase(sqlDb: SqlJsDatabase): AppDatabase {
-  const persist = () => fs.writeFileSync(DB_PATH, Buffer.from(sqlDb.export()));
-  const normalizeParams = (params: unknown[]) => params.map((param) => (param === undefined ? null : param));
+function createDatabase(pool: Pool): AppDatabase {
+  return createExecutor((sql, params) => pool.query(sql, params as any[]), async (work) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await work(createClientDatabase(client));
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }, () => pool.end());
+}
+function createClientDatabase(client: PoolClient): AppDatabase {
+  return createExecutor((sql, params) => client.query(sql, params as any[]), async (work) => work(createClientDatabase(client)), async () => undefined);
+}
+function createExecutor(
+  run: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }>,
+  transaction: <T>(work: (db: AppDatabase) => Promise<T>) => Promise<T>,
+  close: () => Promise<void>
+): AppDatabase {
   return {
-    exec: (sql) => {
-      sqlDb.exec(sql);
-      persist();
-    },
-    prepare: (sql) => ({
-      run: (...params) => {
-        sqlDb.run(sql, normalizeParams(params) as any[]);
-        persist();
-      },
-      get: (...params) => {
-        const statement = sqlDb.prepare(sql, normalizeParams(params) as any[]);
-        try {
-          return statement.step() ? statement.getAsObject() : undefined;
-        } finally {
-          statement.free();
-        }
-      },
-      all: (...params) => {
-        const statement = sqlDb.prepare(sql, normalizeParams(params) as any[]);
-        const rows: any[] = [];
-        try {
-          while (statement.step()) rows.push(statement.getAsObject());
-          return rows;
-        } finally {
-          statement.free();
-        }
-      }
-    })
+    query: async (sql, params = []) => (await run(sql, params)).rows,
+    one: async (sql, params = []) => (await run(sql, params)).rows[0],
+    exec: async (sql, params = []) => { await run(sql, params); },
+    transaction,
+    close
   };
 }
 
-function seed(db: AppDatabase) {
-  const workspace = db.prepare("SELECT id FROM workspaces LIMIT 1").get() as { id: string } | undefined;
+async function seed(db: AppDatabase) {
   const now = new Date().toISOString();
-  seedAdminUser(db, now);
-  if (workspace) return;
-
-  db.prepare("INSERT INTO workspaces (id, name, owner_email, created_at) VALUES (?, ?, ?, ?)").run(
-    "workspace-default",
-    "Company Workspace",
-    "admin@company.local",
-    now
-  );
-  db.prepare("INSERT INTO team_members (id, workspace_id, name, email, role, active) VALUES (?, ?, ?, ?, ?, ?)").run(
-    "member-admin",
-    "workspace-default",
-    "Workspace Admin",
-    "admin@company.local",
-    "admin",
-    1
-  );
-  db.prepare("INSERT INTO team_groups (id, workspace_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)").run(
-    "group-default",
-    "workspace-default",
-    "Default",
-    "Default profile access group",
-    now
-  );
-  db.prepare("INSERT INTO team_group_members (group_id, member_id) VALUES (?, ?)").run("group-default", "member-admin");
-  fs.mkdirSync(path.join(DATA_ROOT, "profiles"), { recursive: true });
-}
-
-function seedAdminUser(db: AppDatabase, now: string) {
-  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
-  const email = ADMIN_EMAIL.trim().toLowerCase();
-  if (db.prepare("SELECT id FROM users WHERE email = ?").get(email)) return;
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.scryptSync(ADMIN_PASSWORD, salt, 64).toString("hex");
-  db.prepare("INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
-    "user-admin", "Admin", email, `${salt}:${hash}`, "admin", now
-  );
-}
-
-function migrate(db: AppDatabase) {
-  addColumnIfMissing(db, "proxies", "country", "TEXT");
-  addColumnIfMissing(db, "proxies", "country_code", "TEXT");
-  addColumnIfMissing(db, "proxies", "http_port", "INTEGER");
-  addColumnIfMissing(db, "proxies", "socks5_port", "INTEGER");
-  addColumnIfMissing(db, "profiles", "proxy_protocol", "TEXT");
-  addColumnIfMissing(db, "profiles", "tab_behavior", "TEXT");
-  addColumnIfMissing(db, "profiles", "operating_system", "TEXT");
-  addColumnIfMissing(db, "profiles", "browser_engine", "TEXT");
-  addColumnIfMissing(db, "profiles", "storage_mode", "TEXT");
-  addColumnIfMissing(db, "users", "role", "TEXT");
-  backfillProxyPorts(db);
-  mergeLegacyProxyRows(db);
-}
-
-function addColumnIfMissing(db: AppDatabase, table: string, column: string, type: string) {
-  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
-  if (columns.some((item) => item.name === column)) return;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
-}
-
-function backfillProxyPorts(db: AppDatabase) {
-  db.exec("UPDATE proxies SET http_port = port WHERE http_port IS NULL AND protocol IN ('http', 'https')");
-  db.exec("UPDATE proxies SET socks5_port = port WHERE socks5_port IS NULL AND protocol = 'socks5'");
-  db.exec("UPDATE profiles SET proxy_protocol = (SELECT CASE WHEN proxies.protocol = 'socks5' THEN 'socks5' ELSE 'http' END FROM proxies WHERE proxies.id = profiles.proxy_id) WHERE proxy_protocol IS NULL AND proxy_id IS NOT NULL");
-  db.exec("UPDATE profiles SET proxy_protocol = 'http' WHERE proxy_protocol IS NULL");
-  db.exec("UPDATE profiles SET tab_behavior = 'custom' WHERE tab_behavior IS NULL");
-  db.exec("UPDATE profiles SET operating_system = 'windows' WHERE operating_system IS NULL");
-  db.exec("UPDATE profiles SET browser_engine = 'chromium' WHERE browser_engine IS NULL");
-  db.exec("UPDATE profiles SET storage_mode = 'device' WHERE storage_mode IS NULL");
-}
-
-function mergeLegacyProxyRows(db: AppDatabase) {
-  const proxies = db.prepare("SELECT * FROM proxies ORDER BY id ASC").all();
-  const groups = new Map<string, any[]>();
-  for (const proxy of proxies) {
-    const key = `${proxy.host}:${proxy.username ?? ''}`;
-    groups.set(key, [...(groups.get(key) ?? []), proxy]);
-  }
-  for (const rows of groups.values()) {
-    if (rows.length < 2) continue;
-    const keeper = rows[0];
-    const httpPort = rows.find((row) => row.http_port)?.http_port;
-    const socks5Port = rows.find((row) => row.socks5_port)?.socks5_port;
-    db.prepare("UPDATE proxies SET http_port=?, socks5_port=? WHERE id=?").run(httpPort, socks5Port, keeper.id);
-    for (const duplicate of rows.slice(1)) {
-      const duplicateProtocol = duplicate.socks5_port ? "socks5" : "http";
-      db.prepare("UPDATE profiles SET proxy_id=?, proxy_protocol=COALESCE(proxy_protocol, ?) WHERE proxy_id=?").run(keeper.id, duplicateProtocol, duplicate.id);
-      db.prepare("DELETE FROM proxies WHERE id=?").run(duplicate.id);
-    }
+  await db.exec(`INSERT INTO workspaces (id, name, owner_email, created_at)
+    VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`, ["workspace-default", "Company Workspace", ADMIN_EMAIL ?? "admin@company.local", now]);
+  await db.exec(`INSERT INTO profile_groups (id, workspace_id, name, description, created_at)
+    VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`, ["group-default", "workspace-default", "Default", "Default profile access group", now]);
+  if (ADMIN_EMAIL && ADMIN_PASSWORD) {
+    await db.exec(`INSERT INTO users (id, name, email, password_hash, role, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (email) DO NOTHING`, [
+      "user-admin", "Admin", ADMIN_EMAIL.trim().toLowerCase(), await bcrypt.hash(ADMIN_PASSWORD, 12), "admin", now
+    ]);
   }
 }

@@ -1,347 +1,46 @@
 import { Router } from "express";
-import { getBrowserEngineStatus, launchProfile, listRunningProfiles, stopProfile } from "@profilex/browser-engine";
-import { DATA_ROOT, IS_PRODUCTION } from "./config.js";
 import type { AppDatabase } from "./database/db.js";
 import { checkProxy, createProxy, deleteProxy, detectProxyCountry, getProxy, importProxyLines, listProxies, updateProxy } from "./services/proxyService.js";
-import { assignProfileToUser, cloneProfile, createProfile, deleteProfile, getProfile, listProfiles, listProfilesForUser, syncProfileState, updateProfile } from "./services/profileService.js";
+import { assignProfileToUser, cloneProfile, createProfile, deleteProfile, getProfile, getProfileBrowserState, listProfilesForUser, syncProfileState, updateProfile } from "./services/profileService.js";
 import { realisticFingerprintPreset } from "./services/fingerprintService.js";
-import { logActivity } from "./services/activityService.js";
 import { getPythonWorkerStatus, runPythonPageCheck, runPythonProxyCheck } from "./services/pythonWorkerService.js";
 import { acceptTeamInvitation, assignProfileGroup, createTeamGroup, createTeamMember, deleteTeamGroup, deleteTeamMember, getTeamWorkspace, removeMemberFromGroup, removeProfileFromGroup, resendTeamInvitation, updateTeamGroup, updateTeamMember } from "./services/teamService.js";
 import { deleteProxylineSettings, getProxylineSettings, getSmtpSettings, updateProxylineSettings, updateSmtpSettings } from "./services/settingsService.js";
 import { sendInvitationEmail, testSmtpSettings } from "./services/smtpService.js";
 import { getProxylineAccountSummary, importProxylineProxies } from "./services/proxylineService.js";
-import type { ProxySettings } from "@profilex/shared";
 import { getUserByToken, loginUser, logoutUser, registerUser } from "./services/authService.js";
 import { createRdpConnection, deleteRdpConnection, launchRdpConnection, listRdpConnections, updateRdpConnection } from "./services/rdpService.js";
 import { autoFixProfileCompatibility, checkProfileCompatibility } from "./services/profileCompatibilityService.js";
+import { acquireProfileLock, listActiveSessions, releaseProfileLock } from "./services/profileLockService.js";
+import { broadcast } from "./realtime.js";
 
-export function createRoutes(db: AppDatabase) {
-  const router = Router();
-
-  router.get("/health", (_req, res) => res.json({ data: { ok: true } }));
-  router.post("/auth/register", (req, res) => res.status(201).json({ data: registerUser(db, req.body) }));
-  router.post("/auth/login", (req, res) => res.json({ data: loginUser(db, req.body) }));
-  router.get("/auth/me", (req, res) => {
-    const user = getUserByToken(db, getBearerToken(req.headers.authorization));
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    return res.json({ data: user });
-  });
-  router.post("/auth/logout", (req, res) => {
-    logoutUser(db, getBearerToken(req.headers.authorization));
-    return res.json({ data: { loggedOut: true } });
-  });
-
-  router.use((req, res, next) => {
-    const user = getUserByToken(db, getBearerToken(req.headers.authorization));
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    res.locals.authUser = user;
-    return next();
-  });
-
-  router.get("/browser/status", async (_req, res) => res.json({ data: await getBrowserEngineStatus() }));
-
-  router.get("/dashboard", (_req, res) => {
-    syncProfileRuntimeStatuses(db);
-    const profiles = listProfilesForUser(db, res.locals.authUser);
-    const proxies = listProxies(db);
-    const healthy = proxies.filter((proxy) => proxy.status === "healthy").length;
-    const recentLaunches = profiles
-      .filter((profile) => profile.lastLaunchedAt)
-      .sort((left, right) => String(right.lastLaunchedAt).localeCompare(String(left.lastLaunchedAt)))
-      .slice(0, 5)
-      .map((profile) => ({ profileId: profile.id, name: profile.name, launchedAt: profile.lastLaunchedAt! }));
-    const launchesByDay = new Map(
-      (db.prepare(`SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS launches
-        FROM activity_logs
-        WHERE action = 'profile.launched'
-          AND created_at >= date('now', '-6 days')
-        GROUP BY substr(created_at, 1, 10)`).all() as Array<{ day: string; launches: number }>)
-        .map((item) => [item.day, item.launches])
-    );
-    const usage = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (6 - index));
-      const day = date.toISOString().slice(0, 10);
-      return {
-        day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-        launches: launchesByDay.get(day) ?? 0
-      };
-    });
-    res.json({
-      data: {
-        profiles: profiles.length,
-        onlineProfiles: listRunningProfiles().length,
-        proxyHealth: proxies.length ? Math.round((healthy / proxies.length) * 100) : 100,
-        recentLaunches,
-        usage
-      }
-    });
-  });
-
-  router.get("/profiles", (_req, res) => {
-    syncProfileRuntimeStatuses(db);
-    res.json({ data: listProfilesForUser(db, res.locals.authUser) });
-  });
-  router.post("/profiles", (req, res) => res.status(201).json({ data: createProfile(db, req.body) }));
-  router.get("/profiles/:id", (req, res) => {
-    const profile = getProfile(db, req.params.id);
-    if (!profile) return res.status(404).json({ error: "Profile not found" });
-    return res.json({ data: profile });
-  });
-  router.patch("/profiles/:id", (req, res) => {
-    const profile = updateProfile(db, req.params.id, req.body);
-    if (!profile) return res.status(404).json({ error: "Profile not found" });
-    return res.json({ data: profile });
-  });
-  router.post("/profiles/:id/clone", (req, res) => {
-    const profile = cloneProfile(db, req.params.id);
-    if (!profile) return res.status(404).json({ error: "Profile not found" });
-    return res.status(201).json({ data: profile });
-  });
-  router.post("/profiles/:id/archive", (req, res) => res.json({ data: updateProfile(db, req.params.id, { status: "archived" }) }));
-  router.post("/profiles/:id/assign", (req, res) => {
-    if (res.locals.authUser.role !== "admin") return res.status(403).json({ error: "Forbidden" });
-    const assignment = assignProfileToUser(db, req.params.id, String(req.body.userId ?? ""));
-    if (!assignment) return res.status(404).json({ error: "Profile or user not found" });
-    return res.json({ data: assignment });
-  });
-  router.post("/profiles/:id/sync", (req, res) => {
-    const result = syncProfileState(db, req.params.id, req.body);
-    if (!result) return res.status(404).json({ error: "Profile not found" });
-    return res.json({ data: result });
-  });
-  router.post("/profiles/:id/compatibility-check", async (req, res) => {
-    const check = await checkProfileCompatibility(db, req.params.id);
-    if (!check) return res.status(404).json({ error: "Profile not found" });
-    return res.json({ data: check });
-  });
-  router.post("/profiles/:id/compatibility-fix", async (req, res) => {
-    const check = await autoFixProfileCompatibility(db, req.params.id);
-    if (!check) return res.status(404).json({ error: "Profile not found" });
-    return res.json({ data: check });
-  });
-  router.delete("/profiles/:id", (req, res) => res.json({ data: { deleted: deleteProfile(db, req.params.id) } }));
-
-  router.post("/profiles/:id/launch", async (req, res, next) => {
-    try {
-      if (IS_PRODUCTION) return res.status(409).json({ error: "Browser launch is local-client only in production." });
-      const profile = getProfile(db, req.params.id);
-      if (!profile) return res.status(404).json({ error: "Profile not found" });
-      const result = await launchProfile({ profile, proxy: resolveLaunchProxy(db, profile.proxyId, profile.proxyProtocol, profile.browserEngine), request: { profileId: profile.id, ...req.body }, dataRoot: DATA_ROOT });
-      updateProfile(db, profile.id, { status: "running", lastLaunchedAt: new Date().toISOString() });
-      logActivity(db, "profile.launched", profile.name);
-      return res.json({ data: result });
-    } catch (error) {
-      return next(error);
-    }
-  });
-  router.post("/profiles/:id/stop", async (req, res, next) => {
-    try {
-      if (IS_PRODUCTION) return res.status(409).json({ error: "Browser stop is local-client only in production." });
-      const result = await stopProfile(req.params.id);
-      updateProfile(db, req.params.id, { status: "ready" });
-      return res.json({ data: result });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  router.get("/rdp", (_req, res) => res.json({ data: listRdpConnections(db) }));
-  router.post("/rdp", (req, res) => res.status(201).json({ data: createRdpConnection(db, req.body) }));
-  router.patch("/rdp/:id", (req, res) => {
-    const connection = updateRdpConnection(db, req.params.id, req.body);
-    if (!connection) return res.status(404).json({ error: "RDP connection not found" });
-    return res.json({ data: connection });
-  });
-  router.delete("/rdp/:id", (req, res) => res.json({ data: { deleted: deleteRdpConnection(db, req.params.id) } }));
-  router.post("/rdp/:id/launch", (req, res) => {
-    const connection = launchRdpConnection(db, req.params.id);
-    if (!connection) return res.status(404).json({ error: "RDP connection not found" });
-    return res.json({ data: connection });
-  });
-
-  router.get("/proxies", (_req, res) => res.json({ data: listProxies(db) }));
-  router.post("/proxies", (req, res) => res.status(201).json({ data: createProxy(db, req.body) }));
-  router.patch("/proxies/:id", (req, res) => {
-    const proxy = updateProxy(db, req.params.id, req.body);
-    if (!proxy) return res.status(404).json({ error: "Proxy not found" });
-    return res.json({ data: proxy });
-  });
-  router.delete("/proxies/:id", (req, res) => res.json({ data: { deleted: deleteProxy(db, req.params.id) } }));
-  router.post("/proxies/import", (req, res) => res.status(201).json({ data: importProxyLines(db, String(req.body.text ?? "")) }));
-  router.post("/proxies/import/proxyline", async (_req, res, next) => {
-    try {
-      return res.status(201).json({ data: await importProxylineProxies(db) });
-    } catch (error) {
-      return next(error);
-    }
-  });
-  router.post("/proxies/check-all", async (_req, res) => {
-    const proxies = listProxies(db);
-    const checked = await mapWithConcurrency(proxies, 8, (proxy) => checkProxy(db, proxy.id, { detectCountry: false }));
-    const proxiesMissingCountry = checked.filter((proxy) => proxy && !proxy.country);
-    await mapWithConcurrency(proxiesMissingCountry, 4, async (proxy) => {
-      if (!proxy) return undefined;
-      return detectProxyCountry(db, proxy.id).catch(() => undefined);
-    });
-    const refreshed = listProxies(db);
-    return res.json({ data: { checked: refreshed, checkedCount: refreshed.length } });
-  });
-  router.post("/proxies/:id/check", async (req, res) => res.json({ data: await checkProxy(db, req.params.id) }));
-  router.post("/proxies/:id/detect-country", async (req, res) => {
-    const proxy = await detectProxyCountry(db, req.params.id);
-    if (!proxy) return res.status(404).json({ error: "Proxy not found" });
-    return res.json({ data: proxy });
-  });
-
-  router.post("/fingerprints/random", (_req, res) => res.json({ data: realisticFingerprintPreset(Math.floor(Math.random() * 100000)) }));
-  router.get("/team", (_req, res) => res.json({ data: getTeamWorkspace(db) }));
-  router.post("/team/members", async (req, res, next) => {
-    try {
-      const member = createTeamMember(db, req.body);
-      const invite = getTeamWorkspace(db).invitations.find((item) => item.memberId === member.id && item.status === "pending");
-      let emailResult: unknown = undefined;
-      if (invite) {
-        emailResult = await sendInvitationEmail(db, invite, member.name).catch((error) => ({
-          sent: false,
-          error: error instanceof Error ? error.message : "Could not send invite email"
-        }));
-      }
-      return res.status(201).json({ data: { ...member, emailResult } });
-    } catch (error) {
-      return next(error);
-    }
-  });
-  router.patch("/team/members/:id", (req, res) => {
-    const member = updateTeamMember(db, req.params.id, req.body);
-    if (!member) return res.status(404).json({ error: "Member not found" });
-    return res.json({ data: member });
-  });
-  router.delete("/team/members/:id", (req, res) => res.json({ data: { deleted: deleteTeamMember(db, req.params.id) } }));
-  router.post("/team/members/:id/resend-invite", async (req, res) => {
-    const invitation = resendTeamInvitation(db, req.params.id);
-    if (!invitation) return res.status(404).json({ error: "Member not found" });
-    const member = getTeamWorkspace(db).members.find((item) => item.id === req.params.id);
-    const emailResult = member
-      ? await sendInvitationEmail(db, invitation, member.name).catch((error) => ({
-          sent: false,
-          error: error instanceof Error ? error.message : "Could not send invite email"
-        }))
-      : undefined;
-    return res.json({ data: { ...invitation, emailResult } });
-  });
-  router.post("/team/invitations/:token/accept", (req, res) => {
-    const invitation = acceptTeamInvitation(db, req.params.token);
-    if (!invitation) return res.status(404).json({ error: "Invitation not found" });
-    return res.json({ data: invitation });
-  });
-  router.get("/profile-groups", (_req, res) => res.json({ data: getTeamWorkspace(db).groups }));
-  router.post("/profile-groups", (req, res) => res.status(201).json({ data: createTeamGroup(db, req.body) }));
-  router.post("/team/groups", (req, res) => res.status(201).json({ data: createTeamGroup(db, req.body) }));
-  router.patch("/team/groups/:id", (req, res) => {
-    const group = updateTeamGroup(db, req.params.id, req.body);
-    if (!group) return res.status(404).json({ error: "Group not found" });
-    return res.json({ data: group });
-  });
-  router.delete("/team/groups/:id", (req, res) => res.json({ data: { deleted: deleteTeamGroup(db, req.params.id) } }));
-  router.post("/team/groups/:id/profiles/:profileId", (req, res) => {
-    const assignment = assignProfileGroup(db, req.params.profileId, req.params.id);
-    if (!assignment) return res.status(404).json({ error: "Group or profile not found" });
-    return res.json({ data: assignment });
-  });
-  router.delete("/team/groups/:id/profiles/:profileId", (req, res) => {
-    const removal = removeProfileFromGroup(db, req.params.profileId, req.params.id);
-    if (!removal) return res.status(404).json({ error: "Group or profile not found" });
-    return res.json({ data: removal });
-  });
-  router.delete("/team/groups/:id/members/:memberId", (req, res) => {
-    const removal = removeMemberFromGroup(db, req.params.memberId, req.params.id);
-    if (!removal) return res.status(404).json({ error: "Group or member not found" });
-    return res.json({ data: removal });
-  });
-  router.get("/logs", (_req, res) => res.json({ data: db.prepare("SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 100").all() }));
-  router.delete("/logs", (_req, res) => {
-    db.prepare("DELETE FROM activity_logs").run();
-    return res.json({ data: { cleared: true } });
-  });
-
-  router.get("/settings/smtp", (_req, res) => res.json({ data: getSmtpSettings(db) }));
-  router.patch("/settings/smtp", (req, res) => res.json({ data: updateSmtpSettings(db, req.body) }));
-  router.get("/settings/proxyline", async (_req, res, next) => {
-    try {
-      return res.json({ data: await getProxylineAccountSummary(db) });
-    } catch (error) {
-      return next(error);
-    }
-  });
-  router.patch("/settings/proxyline", (req, res) => res.json({ data: updateProxylineSettings(db, req.body) }));
-  router.delete("/settings/proxyline", (_req, res) => res.json({ data: deleteProxylineSettings(db) }));
-  router.post("/settings/smtp/test", async (req, res, next) => {
-    try {
-      const settings = { ...getSmtpSettings(db, { includePassword: true }), ...req.body };
-      return res.json({ data: await testSmtpSettings(settings) });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  router.post("/cookies/export", (_req, res) => res.json({ data: { message: "Cookie export is available through launched Playwright contexts in the profile runtime." } }));
-  router.post("/cookies/import", (_req, res) => res.json({ data: { imported: true } }));
-
-  router.get("/worker/python/status", async (_req, res) => {
-    res.json({ data: await getPythonWorkerStatus() });
-  });
-  router.post("/worker/python/proxy-check", async (req, res, next) => {
-    try {
-      res.json({ data: await runPythonProxyCheck(String(req.body.host), Number(req.body.port)) });
-    } catch (error) {
-      next(error);
-    }
-  });
-  router.post("/worker/python/page-check", async (req, res, next) => {
-    try {
-      res.json({ data: await runPythonPageCheck(req.body) });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  return router;
-}
-
-function resolveLaunchProxy(db: AppDatabase, proxyId?: string, protocol: ProxySettings["protocol"] = "http", browserEngine = "chromium"): ProxySettings | undefined {
-  const proxy = getProxy(db, proxyId);
-  if (!proxy) return undefined;
-  if (browserEngine === "firefox" && protocol === "socks5" && proxy.httpPort) {
-    return { ...proxy, protocol: "http", port: proxy.httpPort };
-  }
-  const port = protocol === "socks5" ? proxy.socks5Port : proxy.httpPort;
-  if (!port) throw new Error(`${protocol.toUpperCase()} port is not configured for this proxy.`);
-  return { ...proxy, protocol, port };
-}
-function syncProfileRuntimeStatuses(db: AppDatabase) {
-  const runningIds = new Set(listRunningProfiles().map((profile) => profile.id));
-  for (const profile of listProfiles(db)) {
-    if (profile.status === "running" && !runningIds.has(profile.id)) {
-      updateProfile(db, profile.id, { status: "ready" });
-    }
-  }
-}
-
-async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>) {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex++;
-      results[currentIndex] = await worker(items[currentIndex]);
-    }
-  }));
-  return results;
-}
-
-function getBearerToken(header?: string) {
-  if (!header?.startsWith("Bearer ")) return undefined;
-  return header.slice("Bearer ".length).trim();
-}
+export function createRoutes(db:AppDatabase){const router=Router();
+router.get('/health',(_q,r)=>r.json({data:{ok:true}}));
+router.post('/auth/register',async(q,r)=>r.status(201).json({data:await registerUser(db,q.body)}));
+router.post('/auth/login',async(q,r)=>r.json({data:await loginUser(db,q.body)}));
+router.get('/auth/me',(q,r)=>{const u=getUserByToken(db,bearer(q.headers.authorization)); return u?r.json({data:u}):r.status(401).json({error:'Unauthorized'})});
+router.post('/auth/logout',(q,r)=>{logoutUser(db,bearer(q.headers.authorization)); return r.json({data:{loggedOut:true}})});
+router.use((q,r,n)=>{const u=getUserByToken(db,bearer(q.headers.authorization)); if(!u)return r.status(401).json({error:'Unauthorized'}); r.locals.authUser=u; n()});
+router.get('/dashboard',async(_q,r)=>{const [profiles,proxies,sessions]=await Promise.all([listProfilesForUser(db,r.locals.authUser),listProxies(db),listActiveSessions(db)]); const healthy=proxies.filter(p=>p.status==='healthy').length; const recentLaunches=profiles.filter(p=>p.lastLaunchedAt).sort((a,b)=>String(b.lastLaunchedAt).localeCompare(String(a.lastLaunchedAt))).slice(0,5).map(p=>({profileId:p.id,name:p.name,launchedAt:p.lastLaunchedAt!})); const rows=await db.query<any>(`SELECT to_char(created_at,'YYYY-MM-DD') AS day,COUNT(*)::int AS launches FROM browser_launch_logs WHERE created_at >= now()-interval '6 days' GROUP BY 1`); const map=new Map(rows.map(x=>[x.day,x.launches])); const usage=Array.from({length:7},(_,i)=>{const d=new Date(); d.setDate(d.getDate()-(6-i)); const day=d.toISOString().slice(0,10); return{day:d.toLocaleDateString('en-US',{weekday:'short'}),launches:map.get(day)??0}}); return r.json({data:{profiles:profiles.length,onlineProfiles:sessions.length,proxyHealth:proxies.length?Math.round(healthy/proxies.length*100):100,recentLaunches,usage}})});
+router.get('/profiles',async(_q,r)=>r.json({data:await listProfilesForUser(db,r.locals.authUser)}));
+router.post('/profiles',async(q,r)=>r.status(201).json({data:await createProfile(db,q.body,r.locals.authUser.id)}));
+router.get('/profiles/:id',async(q,r)=>{const p=await getProfile(db,q.params.id); return p?r.json({data:p}):r.status(404).json({error:'Profile not found'})});
+router.get('/profiles/:id/state',async(q,r)=>{const s=await getProfileBrowserState(db,q.params.id); return s?r.json({data:s}):r.status(404).json({error:'Profile not found'})});
+router.patch('/profiles/:id',async(q,r)=>{const p=await updateProfile(db,q.params.id,q.body,r.locals.authUser.id); if(!p)return r.status(404).json({error:'Profile not found'}); broadcast('profile.updated',p); return r.json({data:p})});
+router.post('/profiles/:id/clone',async(q,r)=>{const p=await cloneProfile(db,q.params.id,r.locals.authUser.id); return p?r.status(201).json({data:p}):r.status(404).json({error:'Profile not found'})});
+router.post('/profiles/:id/archive',async(q,r)=>r.json({data:await updateProfile(db,q.params.id,{status:'archived'},r.locals.authUser.id)}));
+router.post('/profiles/:id/assign',async(q,r)=>{if(r.locals.authUser.role!=='admin')return r.status(403).json({error:'Forbidden'}); const x=await assignProfileToUser(db,q.params.id,String(q.body.userId??'')); return x?r.json({data:x}):r.status(404).json({error:'Profile or user not found'})});
+router.post('/profiles/:id/sync',async(q,r)=>{const x=await syncProfileState(db,q.params.id,q.body,r.locals.authUser.id); if(!x)return r.status(404).json({error:'Profile not found'}); broadcast('profile.synced',x); return r.json({data:x})});
+router.post('/profiles/:id/lock',async(q,r)=>{const x=await acquireProfileLock(db,q.params.id,r.locals.authUser,meta(q)); if(!x.acquired)return r.status(409).json({error:'Profile already in use',data:x}); broadcast('profile.locked',{profileId:q.params.id,userId:r.locals.authUser.id}); return r.json({data:x})});
+router.post('/profiles/:id/unlock',async(q,r)=>{const x=await releaseProfileLock(db,q.params.id,r.locals.authUser,Boolean(q.body.force&&r.locals.authUser.role==='admin')); broadcast('profile.unlocked',{profileId:q.params.id}); return r.json({data:x})});
+router.post('/profiles/:id/launch',async(q,r)=>{const x=await acquireProfileLock(db,q.params.id,r.locals.authUser,meta(q)); if(!x.acquired)return r.status(409).json({error:'Profile already in use',data:x}); const p=await updateProfile(db,q.params.id,{status:'running',lastLaunchedAt:new Date().toISOString()},r.locals.authUser.id); broadcast('profile.locked',{profileId:q.params.id,userId:r.locals.authUser.id}); return r.json({data:{profileId:q.params.id,lock:x,profile:p}})});
+router.post('/profiles/:id/stop',async(q,r)=>{await releaseProfileLock(db,q.params.id,r.locals.authUser); const p=await updateProfile(db,q.params.id,{status:'ready'},r.locals.authUser.id); broadcast('profile.unlocked',{profileId:q.params.id}); return r.json({data:{profileId:q.params.id,profile:p}})});
+router.post('/profiles/:id/compatibility-check',async(q,r)=>{const x=await checkProfileCompatibility(db,q.params.id); return x?r.json({data:x}):r.status(404).json({error:'Profile not found'})}); router.post('/profiles/:id/compatibility-fix',async(q,r)=>{const x=await autoFixProfileCompatibility(db,q.params.id); return x?r.json({data:x}):r.status(404).json({error:'Profile not found'})}); router.delete('/profiles/:id',async(q,r)=>r.json({data:{deleted:await deleteProfile(db,q.params.id,r.locals.authUser.id)}}));
+router.get('/rdp',async(_q,r)=>r.json({data:await listRdpConnections(db)})); router.post('/rdp',async(q,r)=>r.status(201).json({data:await createRdpConnection(db,q.body)})); router.patch('/rdp/:id',async(q,r)=>{const x=await updateRdpConnection(db,q.params.id,q.body); return x?r.json({data:x}):r.status(404).json({error:'RDP connection not found'})}); router.delete('/rdp/:id',async(q,r)=>r.json({data:{deleted:await deleteRdpConnection(db,q.params.id)}})); router.post('/rdp/:id/launch',async(q,r)=>{const x=await launchRdpConnection(db,q.params.id); return x?r.json({data:x}):r.status(404).json({error:'RDP connection not found'})});
+router.get('/proxies',async(_q,r)=>r.json({data:await listProxies(db)})); router.post('/proxies',async(q,r)=>r.status(201).json({data:await createProxy(db,q.body)})); router.patch('/proxies/:id',async(q,r)=>{const x=await updateProxy(db,q.params.id,q.body); return x?r.json({data:x}):r.status(404).json({error:'Proxy not found'})}); router.delete('/proxies/:id',async(q,r)=>r.json({data:{deleted:await deleteProxy(db,q.params.id)}})); router.post('/proxies/import',async(q,r)=>r.status(201).json({data:await importProxyLines(db,String(q.body.text??''))})); router.post('/proxies/import/proxyline',async(_q,r)=>r.status(201).json({data:await importProxylineProxies(db)})); router.post('/proxies/check-all',async(_q,r)=>{const proxies=await listProxies(db); const checked=await Promise.all(proxies.map(p=>checkProxy(db,p.id,{detectCountry:false}))); await Promise.all(checked.filter(p=>p&&!p.country).map(p=>detectProxyCountry(db,p!.id).catch(()=>undefined))); const fresh=await listProxies(db); return r.json({data:{checked:fresh,checkedCount:fresh.length}})}); router.post('/proxies/:id/check',async(q,r)=>r.json({data:await checkProxy(db,q.params.id)})); router.post('/proxies/:id/detect-country',async(q,r)=>{const x=await detectProxyCountry(db,q.params.id); return x?r.json({data:x}):r.status(404).json({error:'Proxy not found'})});
+router.post('/fingerprints/random',(_q,r)=>r.json({data:realisticFingerprintPreset(Math.floor(Math.random()*100000))}));
+router.get('/team',async(_q,r)=>r.json({data:await getTeamWorkspace(db)})); router.post('/team/members',async(q,r)=>{const m=await createTeamMember(db,q.body); const team=await getTeamWorkspace(db); const inv=team.invitations.find(i=>i.memberId===m.id&&i.status==='pending'); const emailResult=inv?await sendInvitationEmail(db,inv,m.name).catch(e=>({sent:false,error:e instanceof Error?e.message:'Could not send invite email'})):undefined; return r.status(201).json({data:{...m,emailResult}})}); router.patch('/team/members/:id',async(q,r)=>{const x=await updateTeamMember(db,q.params.id,q.body); return x?r.json({data:x}):r.status(404).json({error:'Member not found'})}); router.delete('/team/members/:id',async(q,r)=>r.json({data:{deleted:await deleteTeamMember(db,q.params.id)}})); router.post('/team/members/:id/resend-invite',async(q,r)=>{const x=await resendTeamInvitation(db,q.params.id); return x?r.json({data:x}):r.status(404).json({error:'Member not found'})}); router.post('/team/invitations/:token/accept',async(q,r)=>{const x=await acceptTeamInvitation(db,q.params.token); return x?r.json({data:x}):r.status(404).json({error:'Invitation not found'})}); router.get('/profile-groups',async(_q,r)=>r.json({data:(await getTeamWorkspace(db)).groups})); router.post('/profile-groups',async(q,r)=>r.status(201).json({data:await createTeamGroup(db,q.body)})); router.post('/team/groups',async(q,r)=>r.status(201).json({data:await createTeamGroup(db,q.body)})); router.patch('/team/groups/:id',async(q,r)=>{const x=await updateTeamGroup(db,q.params.id,q.body); return x?r.json({data:x}):r.status(404).json({error:'Group not found'})}); router.delete('/team/groups/:id',async(q,r)=>r.json({data:{deleted:await deleteTeamGroup(db,q.params.id)}})); router.post('/team/groups/:id/profiles/:profileId',async(q,r)=>{const x=await assignProfileGroup(db,q.params.profileId,q.params.id); return x?r.json({data:x}):r.status(404).json({error:'Group or profile not found'})}); router.delete('/team/groups/:id/profiles/:profileId',async(q,r)=>{const x=await removeProfileFromGroup(db,q.params.profileId,q.params.id); return x?r.json({data:x}):r.status(404).json({error:'Group or profile not found'})}); router.delete('/team/groups/:id/members/:memberId',async(q,r)=>{const x=await removeMemberFromGroup(db,q.params.memberId,q.params.id); return x?r.json({data:x}):r.status(404).json({error:'Group or member not found'})});
+router.get('/logs',async(_q,r)=>r.json({data:await db.query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100')})); router.delete('/logs',async(_q,r)=>{await db.exec('DELETE FROM audit_logs'); return r.json({data:{cleared:true}})});
+router.get('/settings/smtp',async(_q,r)=>r.json({data:await getSmtpSettings(db)})); router.patch('/settings/smtp',async(q,r)=>r.json({data:await updateSmtpSettings(db,q.body)})); router.get('/settings/proxyline',async(_q,r)=>r.json({data:await getProxylineAccountSummary(db)})); router.patch('/settings/proxyline',async(q,r)=>r.json({data:await updateProxylineSettings(db,q.body)})); router.delete('/settings/proxyline',async(_q,r)=>r.json({data:await deleteProxylineSettings(db)})); router.post('/settings/smtp/test',async(q,r)=>{const settings={...(await getSmtpSettings(db,{includePassword:true})),...q.body}; return r.json({data:await testSmtpSettings(settings)})});
+router.get('/worker/python/status',async(_q,r)=>r.json({data:await getPythonWorkerStatus()})); router.post('/worker/python/proxy-check',async(q,r)=>r.json({data:await runPythonProxyCheck(String(q.body.host),Number(q.body.port))})); router.post('/worker/python/page-check',async(q,r)=>r.json({data:await runPythonPageCheck(q.body)})); return router}
+function bearer(h?:string){return h?.startsWith('Bearer ')?h.slice(7).trim():undefined} function meta(q:any){return{deviceId:String(q.headers['x-device-id']??'' )||undefined,ipAddress:q.ip,userAgent:q.headers['user-agent']}}

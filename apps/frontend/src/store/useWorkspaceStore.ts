@@ -1,6 +1,16 @@
 import type { BrowserProfile, DashboardStats, ProxySettings } from "@profilex/shared";
 import { create } from "zustand";
-import { api } from "../api/client";
+import { api, getAuthToken } from "../api/client";
+
+let realtimeSocket: WebSocket | undefined;
+function ensureRealtime(onChange: () => void) {
+  if (realtimeSocket || !getAuthToken()) return;
+  const apiUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, "") : "http://127.0.0.1:4387";
+  const wsUrl = `${apiUrl.replace(/^http/, "ws")}/ws?token=${encodeURIComponent(getAuthToken()!)}`;
+  realtimeSocket = new WebSocket(wsUrl);
+  realtimeSocket.onmessage = () => onChange();
+  realtimeSocket.onclose = () => { realtimeSocket = undefined; };
+}
 
 interface WorkspaceState {
   activePage: string;
@@ -35,6 +45,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ loading: true });
     const [dashboard, profiles, proxies] = await Promise.all([api.dashboard(), api.profiles(), api.proxies()]);
     set({ dashboard, profiles, proxies, loading: false });
+    ensureRealtime(() => void get().refresh());
   },
   createProfile: async (profile) => {
     await api.createProfile(profile ?? { name: `Workspace ${get().profiles.length + 1}` });
@@ -50,7 +61,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
   launchProfile: async (id) => {
     try {
-      await api.launchProfile(id);
+      const profile = get().profiles.find((item) => item.id === id);
+      if (!profile) throw new Error("Profile not found");
+      await api.lockProfile(id);
+      const browserState = await api.profileState(id);
+      const proxy = get().proxies.find((item) => item.id === profile.proxyId);
+      await (window as any).profilex?.launchProfile?.({ profile, proxy, request: { profileId: id }, browserState });
+      await api.updateProfile(id, { status: "running", lastLaunchedAt: new Date().toISOString() });
       set({ lastError: undefined });
       await get().refresh();
     } catch (error) {
@@ -60,7 +77,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
   stopProfile: async (id) => {
-    await api.stopProfile(id);
+    const result = await (window as any).profilex?.stopProfile?.(id);
+    const profile = get().profiles.find((item) => item.id === id);
+    if (result?.state) await api.syncProfile(id, { ...result.state, expectedVersion: profile?.version });
+    await api.unlockProfile(id);
+    await api.updateProfile(id, { status: "ready" });
     await get().refresh();
   },
   cloneProfile: async (id) => {

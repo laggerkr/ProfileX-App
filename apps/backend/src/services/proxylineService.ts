@@ -23,11 +23,11 @@ type ProxylineProxy = {
 };
 
 export async function importProxylineProxies(db: AppDatabase) {
-  const settings = getProxylineSettings(db, { includeApiKey: true });
+  const settings = await getProxylineSettings(db, { includeApiKey: true });
   if (!settings.apiKey) throw new Error("Proxyline API key is not configured");
 
   const items = await fetchProxylineList(settings.apiKey);
-  const existing = listProxies(db);
+  const existing = await listProxies(db);
   const imported: ProxySettings[] = [];
   let updatedCount = 0;
 
@@ -37,12 +37,12 @@ export async function importProxylineProxies(db: AppDatabase) {
       const current = existing.find((proxy) => sameProxy(proxy, candidate));
       if (current) {
         if (current.name !== candidate.name || current.group !== candidate.group || current.httpPort !== candidate.httpPort || current.socks5Port !== candidate.socks5Port) {
-          updateProxy(db, current.id, { name: candidate.name, group: candidate.group, httpPort: candidate.httpPort, socks5Port: candidate.socks5Port });
+          await updateProxy(db, current.id, { name: candidate.name, group: candidate.group, httpPort: candidate.httpPort, socks5Port: candidate.socks5Port });
           updatedCount += 1;
         }
         continue;
       }
-      imported.push(createProxy(db, candidate));
+      imported.push(await createProxy(db, candidate));
     }
   }
 
@@ -112,7 +112,7 @@ function sameProxy(proxy: ProxySettings, candidate: Omit<ProxySettings, "id" | "
 
 
 export async function getProxylineAccountSummary(db: AppDatabase) {
-  const settings = getProxylineSettings(db, { includeApiKey: true });
+  const settings = await getProxylineSettings(db, { includeApiKey: true });
   if (!settings.apiKey) return settings;
   try {
     const response = await fetch(PROXYLINE_BALANCE_URL, { headers: { "API-KEY": settings.apiKey } });
