@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { getBrowserEngineStatus, launchProfile, listRunningProfiles, stopProfile } from "@profilex/browser-engine";
-import { DATA_ROOT } from "./config.js";
+import { DATA_ROOT, IS_PRODUCTION } from "./config.js";
 import type { AppDatabase } from "./database/db.js";
 import { checkProxy, createProxy, deleteProxy, detectProxyCountry, getProxy, importProxyLines, listProxies, updateProxy } from "./services/proxyService.js";
-import { cloneProfile, createProfile, deleteProfile, getProfile, listProfiles, updateProfile } from "./services/profileService.js";
+import { assignProfileToUser, cloneProfile, createProfile, deleteProfile, getProfile, listProfiles, listProfilesForUser, syncProfileState, updateProfile } from "./services/profileService.js";
 import { realisticFingerprintPreset } from "./services/fingerprintService.js";
 import { logActivity } from "./services/activityService.js";
 import { getPythonWorkerStatus, runPythonPageCheck, runPythonProxyCheck } from "./services/pythonWorkerService.js";
@@ -12,7 +12,7 @@ import { deleteProxylineSettings, getProxylineSettings, getSmtpSettings, updateP
 import { sendInvitationEmail, testSmtpSettings } from "./services/smtpService.js";
 import { getProxylineAccountSummary, importProxylineProxies } from "./services/proxylineService.js";
 import type { ProxySettings } from "@profilex/shared";
-import { createLocalSession, getUserByToken, loginUser, logoutUser, registerUser } from "./services/authService.js";
+import { getUserByToken, loginUser, logoutUser, registerUser } from "./services/authService.js";
 import { createRdpConnection, deleteRdpConnection, launchRdpConnection, listRdpConnections, updateRdpConnection } from "./services/rdpService.js";
 import { autoFixProfileCompatibility, checkProfileCompatibility } from "./services/profileCompatibilityService.js";
 
@@ -22,7 +22,6 @@ export function createRoutes(db: AppDatabase) {
   router.get("/health", (_req, res) => res.json({ data: { ok: true } }));
   router.post("/auth/register", (req, res) => res.status(201).json({ data: registerUser(db, req.body) }));
   router.post("/auth/login", (req, res) => res.json({ data: loginUser(db, req.body) }));
-  router.post("/auth/local-session", (_req, res) => res.json({ data: createLocalSession(db) }));
   router.get("/auth/me", (req, res) => {
     const user = getUserByToken(db, getBearerToken(req.headers.authorization));
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -44,7 +43,7 @@ export function createRoutes(db: AppDatabase) {
 
   router.get("/dashboard", (_req, res) => {
     syncProfileRuntimeStatuses(db);
-    const profiles = listProfiles(db);
+    const profiles = listProfilesForUser(db, res.locals.authUser);
     const proxies = listProxies(db);
     const healthy = proxies.filter((proxy) => proxy.status === "healthy").length;
     const recentLaunches = profiles
@@ -82,7 +81,7 @@ export function createRoutes(db: AppDatabase) {
 
   router.get("/profiles", (_req, res) => {
     syncProfileRuntimeStatuses(db);
-    res.json({ data: listProfiles(db) });
+    res.json({ data: listProfilesForUser(db, res.locals.authUser) });
   });
   router.post("/profiles", (req, res) => res.status(201).json({ data: createProfile(db, req.body) }));
   router.get("/profiles/:id", (req, res) => {
@@ -101,6 +100,17 @@ export function createRoutes(db: AppDatabase) {
     return res.status(201).json({ data: profile });
   });
   router.post("/profiles/:id/archive", (req, res) => res.json({ data: updateProfile(db, req.params.id, { status: "archived" }) }));
+  router.post("/profiles/:id/assign", (req, res) => {
+    if (res.locals.authUser.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+    const assignment = assignProfileToUser(db, req.params.id, String(req.body.userId ?? ""));
+    if (!assignment) return res.status(404).json({ error: "Profile or user not found" });
+    return res.json({ data: assignment });
+  });
+  router.post("/profiles/:id/sync", (req, res) => {
+    const result = syncProfileState(db, req.params.id, req.body);
+    if (!result) return res.status(404).json({ error: "Profile not found" });
+    return res.json({ data: result });
+  });
   router.post("/profiles/:id/compatibility-check", async (req, res) => {
     const check = await checkProfileCompatibility(db, req.params.id);
     if (!check) return res.status(404).json({ error: "Profile not found" });
@@ -115,6 +125,7 @@ export function createRoutes(db: AppDatabase) {
 
   router.post("/profiles/:id/launch", async (req, res, next) => {
     try {
+      if (IS_PRODUCTION) return res.status(409).json({ error: "Browser launch is local-client only in production." });
       const profile = getProfile(db, req.params.id);
       if (!profile) return res.status(404).json({ error: "Profile not found" });
       const result = await launchProfile({ profile, proxy: resolveLaunchProxy(db, profile.proxyId, profile.proxyProtocol, profile.browserEngine), request: { profileId: profile.id, ...req.body }, dataRoot: DATA_ROOT });
@@ -127,6 +138,7 @@ export function createRoutes(db: AppDatabase) {
   });
   router.post("/profiles/:id/stop", async (req, res, next) => {
     try {
+      if (IS_PRODUCTION) return res.status(409).json({ error: "Browser stop is local-client only in production." });
       const result = await stopProfile(req.params.id);
       updateProfile(db, req.params.id, { status: "ready" });
       return res.json({ data: result });
@@ -224,6 +236,8 @@ export function createRoutes(db: AppDatabase) {
     if (!invitation) return res.status(404).json({ error: "Invitation not found" });
     return res.json({ data: invitation });
   });
+  router.get("/profile-groups", (_req, res) => res.json({ data: getTeamWorkspace(db).groups }));
+  router.post("/profile-groups", (req, res) => res.status(201).json({ data: createTeamGroup(db, req.body) }));
   router.post("/team/groups", (req, res) => res.status(201).json({ data: createTeamGroup(db, req.body) }));
   router.patch("/team/groups/:id", (req, res) => {
     const group = updateTeamGroup(db, req.params.id, req.body);

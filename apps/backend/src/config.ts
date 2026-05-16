@@ -1,13 +1,22 @@
+import "dotenv/config";
 import os from "node:os";
 import path from "node:path";
 
-export const PORT = Number(process.env.PROFILEX_API_PORT ?? 4387);
+export const NODE_ENV = process.env.NODE_ENV ?? "development";
+export const IS_PRODUCTION = NODE_ENV === "production";
+export const PORT = Number(process.env.PORT ?? process.env.PROFILEX_API_PORT ?? 4387);
+export const HOST = process.env.HOST ?? "0.0.0.0";
+export const DATABASE_URL = process.env.DATABASE_URL;
+export const JWT_SECRET = process.env.JWT_SECRET ?? (IS_PRODUCTION ? "" : "dev-only-change-me-jwt-secret");
+export const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "http://127.0.0.1:5173,http://localhost:5173";
+export const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 export const DATA_ROOT =
   process.env.PROFILEX_DATA_ROOT ??
-  (process.env.NODE_ENV === "production"
-    ? path.join(os.homedir(), "ProfileXData")
-    : path.join(process.cwd(), "ProfileXData"));
+  (IS_PRODUCTION ? path.join(os.homedir(), "ProfileXData") : path.join(process.cwd(), "ProfileXData"));
 export const DB_PATH = path.join(DATA_ROOT, "profilex.sqlite");
-export const MASTER_KEY =
-  process.env.PROFILEX_MASTER_KEY ?? "dev-only-change-me-profilex-master-key";
+export const MASTER_KEY = process.env.PROFILEX_MASTER_KEY ?? (IS_PRODUCTION ? "" : "dev-only-change-me-profilex-master-key");
 export const PYTHON_WORKER_URL = process.env.PROFILEX_PYTHON_WORKER_URL ?? "http://127.0.0.1:4391";
+
+if (IS_PRODUCTION && !JWT_SECRET) throw new Error("JWT_SECRET is required in production");
+if (IS_PRODUCTION && !MASTER_KEY) throw new Error("PROFILEX_MASTER_KEY is required in production");

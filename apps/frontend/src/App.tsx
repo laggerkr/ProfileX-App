@@ -10,26 +10,33 @@ import { useWorkspaceStore } from "./store/useWorkspaceStore";
 export function App() {
   const { activePage, refresh } = useWorkspaceStore();
   const [isLocked, setLocked] = useState(() => getAppLockSettings().enabled);
-  const [authUser, setAuthUser] = useState<AuthUser>(() => getLocalWorkspaceUser());
+  const [authUser, setAuthUser] = useState<AuthUser>();
+  const [authReady, setAuthReady] = useState(false);
   useTheme();
 
   useEffect(() => {
-    let interval: number | undefined;
-    void api.localSession().then((session) => {
-      setAuthToken(session.token);
-      setAuthUser(session.user);
-      void refresh();
-      interval = window.setInterval(() => void refresh(), 5000);
-    });
-    return () => {
-      if (interval) window.clearInterval(interval);
-    };
-  }, [refresh]);
+    void api.me().then(setAuthUser).catch(() => setAuthToken()).finally(() => setAuthReady(true));
+  }, []);
 
+  useEffect(() => {
+    if (!authUser) return;
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 5000);
+    return () => window.clearInterval(interval);
+  }, [authUser, refresh]);
+
+  const logout = async () => {
+    await api.logout().catch(() => undefined);
+    setAuthToken();
+    setAuthUser(undefined);
+  };
+
+  if (!authReady) return <div className="flex min-h-screen items-center justify-center bg-panel text-sm text-gray-500 dark:bg-[#111315]">Loading...</div>;
+  if (!authUser) return <LoginPage onAuthenticated={(session) => { setAuthToken(session.token); setAuthUser(session.user); }} />;
   if (isLocked) return <AppLockGate onUnlock={() => setLocked(false)} />;
 
   return (
-    <Shell currentUser={authUser} onLogout={() => undefined}>
+    <Shell currentUser={authUser} onLogout={() => void logout()}>
       <div className="screen-enter">
         {activePage === "Dashboard" && <Dashboard />}
         {activePage === "Profiles" && <Profiles />}
@@ -1828,7 +1835,7 @@ function InviteStatus({ invite }: { invite: { url: string; email: string; result
 
 function MembersPage() {
   const [team, setTeam] = useState<TeamWorkspaceData>({ members: [], groups: [], invitations: [] });
-  const [memberForm, setMemberForm] = useState({ name: "", email: "", role: "employee" as Role, groupIds: [] as string[] });
+  const [memberForm, setMemberForm] = useState({ name: "", email: "", role: "client" as Role, groupIds: [] as string[] });
   const [editingMemberId, setEditingMemberId] = useState<string>();
   const [lastInvite, setLastInvite] = useState<{ url: string; email: string; result?: EmailResult }>();
   const loadTeam = async () => setTeam(await api.team());
@@ -1845,7 +1852,7 @@ function MembersPage() {
         groupIds: memberForm.groupIds
       });
       setEditingMemberId(undefined);
-      setMemberForm({ name: "", email: "", role: "employee", groupIds: [] });
+      setMemberForm({ name: "", email: "", role: "client", groupIds: [] });
       await loadTeam();
       return;
     }
@@ -1856,7 +1863,7 @@ function MembersPage() {
       groupIds: memberForm.groupIds
     });
     setLastInvite({ url: member.inviteUrl, email: member.email, result: member.emailResult });
-    setMemberForm({ name: "", email: "", role: "employee", groupIds: [] });
+    setMemberForm({ name: "", email: "", role: "client", groupIds: [] });
     await loadTeam();
   };
 
@@ -1875,7 +1882,7 @@ function MembersPage() {
 
   const cancelMemberEdit = () => {
     setEditingMemberId(undefined);
-    setMemberForm({ name: "", email: "", role: "employee", groupIds: [] });
+    setMemberForm({ name: "", email: "", role: "client", groupIds: [] });
   };
 
   const toggleMemberGroup = (groupId: string) => {
@@ -1906,7 +1913,7 @@ function MembersPage() {
             options={[
               { value: "admin", label: "Admin" },
               { value: "manager", label: "Manager" },
-              { value: "employee", label: "Employee" }
+              { value: "client", label: "Client" }
             ]}
           />
           <div className="flex gap-2">
@@ -2293,10 +2300,6 @@ function Settings() {
   );
 }
 
-
-function getLocalWorkspaceUser(): AuthUser {
-  return { id: "local-user", name: "Local user", email: "local@profilex.local", createdAt: new Date(0).toISOString() };
-}
 
 function normalizeApiError(error: unknown) {
   if (!(error instanceof Error)) return "Request failed.";

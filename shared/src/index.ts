@@ -1,4 +1,4 @@
-export type Role = "admin" | "manager" | "employee";
+export type Role = "admin" | "manager" | "client";
 export type Theme = "light" | "dark" | "system";
 export type ProxyProtocol = "http" | "https" | "socks5";
 export type ProfileStatus = "ready" | "running" | "archived";
@@ -151,7 +151,15 @@ export interface AuthUser {
   id: string;
   name: string;
   email: string;
+  role: Role;
   createdAt: string;
+}
+
+export interface ProfileSyncPayload {
+  cookies?: unknown[];
+  localStorage?: Record<string, string>;
+  sessionStorage?: Record<string, string>;
+  storageState?: unknown;
 }
 
 export interface AuthSession {

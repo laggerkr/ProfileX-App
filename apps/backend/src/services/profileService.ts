@@ -1,4 +1,4 @@
-import type { BrowserProfile } from "@profilex/shared";
+import type { AuthUser, BrowserProfile, ProfileSyncPayload } from "@profilex/shared";
 import { nanoid } from "nanoid";
 import { realisticFingerprintPreset } from "./fingerprintService.js";
 import { logActivity } from "./activityService.js";
@@ -30,6 +30,20 @@ function mapProfile(row: any): BrowserProfile {
 
 export function listProfiles(db: AppDatabase) {
   return db.prepare("SELECT * FROM profiles ORDER BY created_at ASC").all().map(mapProfile);
+}
+
+export function listProfilesForUser(db: AppDatabase, user: AuthUser) {
+  if (user.role === "admin") return listProfiles(db);
+  if (user.role === "manager") {
+    return db.prepare(`SELECT DISTINCT profiles.* FROM profiles
+      JOIN team_groups ON team_groups.name = profiles.profile_group
+      JOIN team_group_members ON team_group_members.group_id = team_groups.id
+      JOIN team_members ON team_members.id = team_group_members.member_id
+      WHERE team_members.email = ? ORDER BY profiles.created_at ASC`).all(user.email).map(mapProfile);
+  }
+  return db.prepare(`SELECT profiles.* FROM profiles
+    JOIN profile_assignments ON profile_assignments.profile_id = profiles.id
+    WHERE profile_assignments.user_id = ? ORDER BY profiles.created_at ASC`).all(user.id).map(mapProfile);
 }
 
 export function getProfile(db: AppDatabase, id: string) {
@@ -128,4 +142,19 @@ export function deleteProfile(db: AppDatabase, id: string) {
   db.prepare("DELETE FROM profiles WHERE id = ?").run(id);
   if (profile) logActivity(db, "profile.deleted", profile.name);
   return Boolean(profile);
+}
+
+export function assignProfileToUser(db: AppDatabase, profileId: string, userId: string) {
+  if (!getProfile(db, profileId)) return undefined;
+  if (!db.prepare("SELECT id FROM users WHERE id = ?").get(userId)) return undefined;
+  db.prepare("INSERT OR IGNORE INTO profile_assignments (profile_id, user_id) VALUES (?, ?)").run(profileId, userId);
+  return { profileId, userId };
+}
+
+export function syncProfileState(db: AppDatabase, profileId: string, payload: ProfileSyncPayload) {
+  const profile = getProfile(db, profileId);
+  if (!profile) return undefined;
+  const now = new Date().toISOString();
+  db.prepare("INSERT OR REPLACE INTO cookies (profile_id, payload, updated_at) VALUES (?, ?, ?)").run(profileId, JSON.stringify(payload), now);
+  return { profileId, syncedAt: now };
 }

@@ -8,6 +8,15 @@ CREATE TABLE IF NOT EXISTS workspaces (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'client',
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id),
@@ -28,6 +37,24 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   last_launched_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS profile_assignments (
+  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (profile_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS cookies (
+  profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+  payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS fingerprints (
+  profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+  payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS proxies (
@@ -93,25 +120,18 @@ CREATE TABLE IF NOT EXISTS team_invitations (
   invited_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS app_users (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS auth_sessions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-  token_hash TEXT NOT NULL UNIQUE,
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS activity_logs (

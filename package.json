@@ -16,7 +16,8 @@
     "build": "npm run build -w @profilex/shared && npm run build -w @profilex/browser-engine && npm run build -w @profilex/backend && npm run build -w @profilex/frontend",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc -b",
-    "package": "npm run build && electron-builder --config electron-builder.yml"
+    "package": "npm run build && electron-builder --config electron-builder.yml",
+    "start:backend": "npm run start -w @profilex/backend"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",

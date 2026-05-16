@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
-import { DB_PATH, DATA_ROOT } from "../config.js";
+import { ADMIN_EMAIL, ADMIN_PASSWORD, DB_PATH, DATA_ROOT } from "../config.js";
+import crypto from "node:crypto";
 
 const schema = fs.readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
 
@@ -63,9 +64,10 @@ function createPersistedDatabase(sqlDb: SqlJsDatabase): AppDatabase {
 
 function seed(db: AppDatabase) {
   const workspace = db.prepare("SELECT id FROM workspaces LIMIT 1").get() as { id: string } | undefined;
+  const now = new Date().toISOString();
+  seedAdminUser(db, now);
   if (workspace) return;
 
-  const now = new Date().toISOString();
   db.prepare("INSERT INTO workspaces (id, name, owner_email, created_at) VALUES (?, ?, ?, ?)").run(
     "workspace-default",
     "Company Workspace",
@@ -91,6 +93,17 @@ function seed(db: AppDatabase) {
   fs.mkdirSync(path.join(DATA_ROOT, "profiles"), { recursive: true });
 }
 
+function seedAdminUser(db: AppDatabase, now: string) {
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+  const email = ADMIN_EMAIL.trim().toLowerCase();
+  if (db.prepare("SELECT id FROM users WHERE email = ?").get(email)) return;
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(ADMIN_PASSWORD, salt, 64).toString("hex");
+  db.prepare("INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
+    "user-admin", "Admin", email, `${salt}:${hash}`, "admin", now
+  );
+}
+
 function migrate(db: AppDatabase) {
   addColumnIfMissing(db, "proxies", "country", "TEXT");
   addColumnIfMissing(db, "proxies", "country_code", "TEXT");
@@ -101,6 +114,7 @@ function migrate(db: AppDatabase) {
   addColumnIfMissing(db, "profiles", "operating_system", "TEXT");
   addColumnIfMissing(db, "profiles", "browser_engine", "TEXT");
   addColumnIfMissing(db, "profiles", "storage_mode", "TEXT");
+  addColumnIfMissing(db, "users", "role", "TEXT");
   backfillProxyPorts(db);
   mergeLegacyProxyRows(db);
 }
