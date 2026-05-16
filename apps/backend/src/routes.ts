@@ -12,11 +12,31 @@ import { deleteProxylineSettings, getProxylineSettings, getSmtpSettings, updateP
 import { sendInvitationEmail, testSmtpSettings } from "./services/smtpService.js";
 import { getProxylineAccountSummary, importProxylineProxies } from "./services/proxylineService.js";
 import type { ProxySettings } from "@profilex/shared";
+import { getUserByToken, loginUser, logoutUser, registerUser } from "./services/authService.js";
 
 export function createRoutes(db: AppDatabase) {
   const router = Router();
 
   router.get("/health", (_req, res) => res.json({ data: { ok: true } }));
+  router.post("/auth/register", (req, res) => res.status(201).json({ data: registerUser(db, req.body) }));
+  router.post("/auth/login", (req, res) => res.json({ data: loginUser(db, req.body) }));
+  router.get("/auth/me", (req, res) => {
+    const user = getUserByToken(db, getBearerToken(req.headers.authorization));
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    return res.json({ data: user });
+  });
+  router.post("/auth/logout", (req, res) => {
+    logoutUser(db, getBearerToken(req.headers.authorization));
+    return res.json({ data: { loggedOut: true } });
+  });
+
+  router.use((req, res, next) => {
+    const user = getUserByToken(db, getBearerToken(req.headers.authorization));
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    res.locals.authUser = user;
+    return next();
+  });
+
   router.get("/browser/status", async (_req, res) => res.json({ data: await getBrowserEngineStatus() }));
 
   router.get("/dashboard", (_req, res) => {
@@ -278,4 +298,9 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker:
     }
   }));
   return results;
+}
+
+function getBearerToken(header?: string) {
+  if (!header?.startsWith("Bearer ")) return undefined;
+  return header.slice("Bearer ".length).trim();
 }

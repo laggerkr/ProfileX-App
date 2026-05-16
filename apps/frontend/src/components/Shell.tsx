@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
 import { Activity, Bot, Fingerprint, FolderKanban, Gauge, KeyRound, ListChecks, MonitorCog, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserPlus } from "lucide-react";
 import { useState } from "react";
+import type { AuthUser } from "@profilex/shared";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
 
 const items = [
@@ -25,7 +26,7 @@ function ProfileXLogo() {
   );
 }
 
-export function Shell({ children }: { children: React.ReactNode }) {
+export function Shell({ children, currentUser, onLogout }: { children: React.ReactNode; currentUser: AuthUser; onLogout: () => void }) {
   const activePage = useWorkspaceStore((state) => state.activePage);
   const setActivePage = useWorkspaceStore((state) => state.setActivePage);
   const [isCollapsed, setCollapsed] = useState(() => window.localStorage.getItem("profilex.sidebarCollapsed") === "true");
@@ -81,9 +82,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <div className="text-sm font-semibold">{activePage}</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Company internal workspace</div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            Local API connected
+          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+            <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500" />Local API connected</span>
+            <span className="hidden sm:inline">{currentUser.email}</span>
+            <button className="rounded-lg border border-line px-2 py-1 hover:bg-gray-100 dark:border-white/10 dark:hover:bg-white/10" onClick={onLogout}>Log out</button>
           </div>
         </div>
         <div className="h-[calc(100vh-56px)] overflow-auto p-6">{children}</div>

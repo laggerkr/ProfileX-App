@@ -1,6 +1,16 @@
-import type { ApiEnvelope, BrowserProfile, DashboardStats, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
+import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
 
 const apiBase = (window as any).profilex?.apiBaseUrl ?? "/api";
+const AUTH_TOKEN_KEY = "profilex.authToken";
+
+export function getAuthToken() {
+  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setAuthToken(token?: string) {
+  if (token) window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+  else window.localStorage.removeItem(AUTH_TOKEN_KEY);
+}
 
 export interface EmailResult {
   sent?: boolean;
@@ -14,6 +24,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       "content-type": "application/json",
+      ...(getAuthToken() ? { authorization: `Bearer ${getAuthToken()}` } : {}),
       ...init?.headers
     }
   });
@@ -23,6 +34,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  register: (input: { name: string; email: string; password: string }) => request<AuthSession>("/auth/register", { method: "POST", body: JSON.stringify(input) }),
+  login: (input: { email: string; password: string }) => request<AuthSession>("/auth/login", { method: "POST", body: JSON.stringify(input) }),
+  me: () => request<AuthUser>("/auth/me"),
+  logout: () => request<{ loggedOut: boolean }>("/auth/logout", { method: "POST" }),
   dashboard: () => request<DashboardStats>("/dashboard"),
   profiles: () => request<BrowserProfile[]>("/profiles"),
   createProfile: (profile: Partial<BrowserProfile>) => request<BrowserProfile>("/profiles", { method: "POST", body: JSON.stringify(profile) }),

@@ -1,27 +1,42 @@
-import type { BrowserProfile, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
+import type { AuthUser, BrowserProfile, FingerprintSettings, ProxylineSettings, ProxySettings, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
 import { Activity, Apple, Chrome, Copy, Database, Fingerprint, FolderKanban, Globe2, KeyRound, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
 import { Shell } from "./components/Shell";
 import { StatCard } from "./components/StatCard";
-import { api, type EmailResult } from "./api/client";
+import { api, setAuthToken, type EmailResult } from "./api/client";
 import { useWorkspaceStore } from "./store/useWorkspaceStore";
 
 export function App() {
   const { activePage, refresh } = useWorkspaceStore();
   const [isLocked, setLocked] = useState(() => getAppLockSettings().enabled);
+  const [authUser, setAuthUser] = useState<AuthUser>();
+  const [authReady, setAuthReady] = useState(false);
   useTheme();
 
   useEffect(() => {
+    void api.me().then(setAuthUser).catch(() => setAuthToken()).finally(() => setAuthReady(true));
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) return;
     void refresh();
     const interval = window.setInterval(() => void refresh(), 5000);
     return () => window.clearInterval(interval);
-  }, [refresh]);
+  }, [authUser, refresh]);
 
+  const logout = async () => {
+    await api.logout().catch(() => undefined);
+    setAuthToken();
+    setAuthUser(undefined);
+  };
+
+  if (!authReady) return <div className="flex min-h-screen items-center justify-center bg-panel text-sm text-gray-500 dark:bg-[#111315]">Loading...</div>;
+  if (!authUser) return <LoginPage onAuthenticated={(session) => { setAuthToken(session.token); setAuthUser(session.user); }} />;
   if (isLocked) return <AppLockGate onUnlock={() => setLocked(false)} />;
 
   return (
-    <Shell>
+    <Shell currentUser={authUser} onLogout={() => void logout()}>
       <div className="screen-enter">
         {activePage === "Dashboard" && <Dashboard />}
         {activePage === "Profiles" && <Profiles />}
@@ -2067,6 +2082,15 @@ function Settings() {
 }
 
 
+function normalizeApiError(error: unknown) {
+  if (!(error instanceof Error)) return "Request failed.";
+  try {
+    return JSON.parse(error.message).error ?? error.message;
+  } catch {
+    return error.message;
+  }
+}
+
 type OperationsSettings = {
   autoUpdates: boolean;
   launchOnStartup: boolean;
@@ -2268,25 +2292,45 @@ function TelegramIcon() {
   return <span className="text-lg text-sky-500">?</span>;
 }
 
-function LoginPage() {
+function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: { token: string; user: AuthUser }) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const submit = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const session = mode === "login"
+        ? await api.login({ email, password })
+        : await api.register({ name, email, password });
+      setAuthToken(session.token);
+      onAuthenticated?.(session);
+    } catch (submitError) {
+      setError(normalizeApiError(submitError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="mx-auto mt-10 max-w-lg rounded-2xl border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
-      <div className="grid grid-cols-2 rounded-xl bg-gray-50 p-1 dark:bg-[#202328]">
-        <button className={`rounded-lg px-3 py-2 text-sm ${mode === "login" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => setMode("login")}>Sign in</button>
-        <button className={`rounded-lg px-3 py-2 text-sm ${mode === "register" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => setMode("register")}>Register</button>
-      </div>
-      <h1 className="mt-5 text-xl font-semibold">{mode === "login" ? "Welcome back" : "Create ProfileX account"}</h1>
-      <div className="mt-4 space-y-3">
-        {mode === "register" && <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Name" />}
-        <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Email" />
-        <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Password" type="password" />
-        <Button className="w-full justify-center" variant="primary">{mode === "login" ? "Sign in" : "Create account"}</Button>
-      </div>
-      <div className="my-5 flex items-center gap-3 text-xs text-gray-400"><span className="h-px flex-1 bg-line dark:bg-white/10" />or continue with<span className="h-px flex-1 bg-line dark:bg-white/10" /></div>
-      <div className="grid grid-cols-2 gap-3">
-        <Button className="justify-center" title="Google"><GoogleIcon /></Button>
-        <Button className="justify-center" title="Telegram"><TelegramIcon /></Button>
+    <div className="flex min-h-screen items-center justify-center bg-panel p-6 dark:bg-[#111315]">
+      <div className="w-full max-w-lg rounded-2xl border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
+        <div className="grid grid-cols-2 rounded-xl bg-gray-50 p-1 dark:bg-[#202328]">
+          <button className={`rounded-lg px-3 py-2 text-sm ${mode === "login" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => setMode("login")}>Sign in</button>
+          <button className={`rounded-lg px-3 py-2 text-sm ${mode === "register" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => setMode("register")}>Register</button>
+        </div>
+        <h1 className="mt-5 text-xl font-semibold">{mode === "login" ? "Welcome back" : "Create ProfileX account"}</h1>
+        <form className="mt-4 space-y-3" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+          {mode === "register" && <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Name" value={name} onChange={(event) => setName(event.target.value)} />}
+          <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+          <Button className="w-full justify-center" variant="primary" disabled={busy}>{busy ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}</Button>
+        </form>
       </div>
     </div>
   );
