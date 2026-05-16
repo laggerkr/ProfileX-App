@@ -1,8 +1,12 @@
 import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProfileCompatibilityCheck, ProfileSyncPayload, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, Invitation, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
 
-const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/api` : ((window as any).profilex?.apiBaseUrl ?? "/api");
+const DEFAULT_API_URL = "https://api.profilex.com.ua";
+export const apiUrl = (import.meta.env.VITE_API_URL || DEFAULT_API_URL).replace(/\/$/, "");
+const apiBase = `${apiUrl}/api`;
 const AUTH_TOKEN_KEY = "profilex.authToken";
 const REFRESH_TOKEN_KEY = "profilex.refreshToken";
+
+if (import.meta.env.DEV) console.info(`[ProfileX] API URL: ${apiUrl}`);
 
 export function getAuthToken() {
   return (window as any).profilex?.getSecureToken?.("access") ?? window.localStorage.getItem(AUTH_TOKEN_KEY);
@@ -27,15 +31,37 @@ export interface EmailResult {
   error?: string;
 }
 
+export class ApiRequestError extends Error {
+  constructor(
+    public readonly url: string,
+    public readonly status?: number,
+    public readonly body?: string,
+    cause?: unknown
+  ) {
+    super(
+      status
+        ? `Request failed: ${url} (${status})${body ? `\n${body}` : ""}`
+        : `Request failed: ${url}${cause instanceof Error ? `\n${cause.message}` : ""}`
+    );
+    this.name = "ApiRequestError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(getAuthToken() ? { authorization: `Bearer ${getAuthToken()}` } : {}),
-      ...init?.headers
-    }
-  });
+  const url = `${apiBase}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        ...(getAuthToken() ? { authorization: `Bearer ${getAuthToken()}` } : {}),
+        ...init?.headers
+      }
+    });
+  } catch (error) {
+    throw new ApiRequestError(url, undefined, undefined, error);
+  }
   if (response.status === 401 && path !== "/auth/refresh" && getRefreshToken()) {
     const refreshed = await fetch(`${apiBase}/auth/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refreshToken: getRefreshToken() }) });
     if (refreshed.ok) {
@@ -44,12 +70,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       return request<T>(path, init);
     }
   }
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new ApiRequestError(url, response.status, await response.text());
   const envelope = (await response.json()) as ApiEnvelope<T>;
   return envelope.data;
 }
 
 export const api = {
+  health: () => request<{ ok: boolean }>("/health"),
   register: (input: { name: string; email: string; password: string }) => request<AuthSession>("/auth/register", { method: "POST", body: JSON.stringify(input) }),
   login: (input: { email: string; password: string }) => request<AuthSession>("/auth/login", { method: "POST", body: JSON.stringify(input) }),
   me: () => request<AuthUser>("/auth/me"),

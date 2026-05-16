@@ -1,6 +1,6 @@
 import type { BrowserProfile, DashboardStats, ProxySettings } from "@profilex/shared";
 import { create } from "zustand";
-import { api, getAuthToken } from "../api/client";
+import { api, apiUrl, getAuthToken } from "../api/client";
 
 let realtimeSocket: WebSocket | undefined;
 function ensureRealtime(onChange: () => void) {

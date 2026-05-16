@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
 import { Shell } from "./components/Shell";
 import { StatCard } from "./components/StatCard";
-import { api, setAuthToken, setRefreshToken, type EmailResult } from "./api/client";
+import { ApiRequestError, api, apiUrl, setAuthToken, setRefreshToken, type EmailResult } from "./api/client";
 import { useWorkspaceStore } from "./store/useWorkspaceStore";
 
 export function App() {
@@ -509,6 +509,7 @@ function ProfileEditorDialog({
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const [diagnostic, setDiagnostic] = useState<string>();
   const [detectedProxyCountries, setDetectedProxyCountries] = useState<Record<string, Pick<ProxySettings, "country" | "countryCode">>>({});
   const [form, setForm] = useState({
     name: profile?.name ?? "",
@@ -594,6 +595,16 @@ function ProfileEditorDialog({
       .then((proxy) => setDetectedProxyCountries((current) => ({ ...current, [proxy.id]: { country: proxy.country, countryCode: proxy.countryCode } })))
       .catch(() => undefined);
   }, [selectedProxy?.id, selectedProxy?.country]);
+
+  const checkApi = async () => {
+    setDiagnostic("Checking API...");
+    try {
+      const health = await api.health();
+      setDiagnostic(`API URL: ${apiUrl}\nHealth: ${health.ok ? "ok" : "not ok"}`);
+    } catch (healthError) {
+      setDiagnostic(`API URL: ${apiUrl}\n${normalizeApiError(healthError)}`);
+    }
+  };
 
   const submit = async () => {
     const name = form.name.trim();
@@ -913,6 +924,7 @@ function RdpEditorDialog({ connection, onClose, onSaved }: { connection?: RdpCon
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [diagnostic, setDiagnostic] = useState<string>();
 
   const save = async () => {
     setBusy(true);
@@ -2206,6 +2218,13 @@ function Settings() {
 
 
 function normalizeApiError(error: unknown) {
+  if (error instanceof ApiRequestError) {
+    return [
+      `URL: ${error.url}`,
+      error.status ? `Status: ${error.status}` : "Status: network error",
+      error.body || error.message
+    ].join("\n");
+  }
   if (!(error instanceof Error)) return "Request failed.";
   try {
     return JSON.parse(error.message).error ?? error.message;
@@ -2422,6 +2441,17 @@ function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: AuthSessio
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [diagnostic, setDiagnostic] = useState<string>();
+
+  const checkApi = async () => {
+    setDiagnostic("Checking API...");
+    try {
+      const health = await api.health();
+      setDiagnostic(`API URL: ${apiUrl}\nHealth: ${health.ok ? "ok" : "not ok"}`);
+    } catch (healthError) {
+      setDiagnostic(`API URL: ${apiUrl}\n${normalizeApiError(healthError)}`);
+    }
+  };
 
   const submit = async () => {
     setBusy(true);
@@ -2454,6 +2484,8 @@ function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: AuthSessio
           <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
           {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
           <Button className="w-full justify-center" variant="primary" disabled={busy}>{busy ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}</Button>
+          <button type="button" className="w-full text-sm text-blue-500" onClick={() => void checkApi()}>Check API connection</button>
+          {diagnostic && <pre className="whitespace-pre-wrap rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-[#202328] dark:text-gray-300">{diagnostic}</pre>}
           {mode === "login" && <button type="button" className="w-full text-sm text-blue-500" onClick={() => alert("Password recovery will be added next.")}>Forgot password?</button>}
         </form>
       </div>
