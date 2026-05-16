@@ -1,4 +1,4 @@
-import type { AuthUser, BrowserProfile, FingerprintSettings, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
+import type { AuthUser, BrowserProfile, FingerprintSettings, ProfileCompatibilityCheck, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
 import { Activity, Apple, Chrome, Copy, Database, Fingerprint, FolderKanban, Globe2, KeyRound, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
@@ -134,6 +134,9 @@ function Profiles() {
   const [cloningProfile, setCloningProfile] = useState<BrowserProfile>();
   const [editingNotesProfile, setEditingNotesProfile] = useState<BrowserProfile>();
   const [editingTagsProfile, setEditingTagsProfile] = useState<BrowserProfile>();
+  const [compatibilityProfile, setCompatibilityProfile] = useState<BrowserProfile>();
+  const [compatibilityResult, setCompatibilityResult] = useState<ProfileCompatibilityCheck>();
+  const [compatibilityLoading, setCompatibilityLoading] = useState(false);
   const [teamGroups, setTeamGroups] = useState<Array<{ value: string; label: string }>>([{ value: "Default", label: "Default" }]);
   const proxyById = useMemo(() => new Map(proxies.map((proxy) => [proxy.id, proxy])), [proxies]);
   useEffect(() => {
@@ -198,6 +201,14 @@ function Profiles() {
             await createProfile({ ...cloningProfile, name: `${cloningProfile.name} Copy`, group });
             setCloningProfile(undefined);
           }}
+        />
+      )}
+      {compatibilityProfile && (
+        <ProfileCompatibilityDialog
+          profile={compatibilityProfile}
+          result={compatibilityResult}
+          loading={compatibilityLoading}
+          onClose={() => { setCompatibilityProfile(undefined); setCompatibilityResult(undefined); }}
         />
       )}
       {editingTagsProfile && (
@@ -274,6 +285,19 @@ function Profiles() {
                         }
                       />
                     )}
+                    <Button
+                      icon={<Shield size={15} />}
+                      title="Check compatibility"
+                      onClick={() => {
+                        setCompatibilityProfile(profile);
+                        setCompatibilityResult(undefined);
+                        setCompatibilityLoading(true);
+                        void api.checkProfileCompatibility(profile.id)
+                          .then(setCompatibilityResult)
+                          .catch((error) => alert(normalizeApiError(error)))
+                          .finally(() => setCompatibilityLoading(false));
+                      }}
+                    />
                     <Button icon={<Copy size={15} />} onClick={() => void cloneProfile(profile.id)} />
                     <Button icon={<FolderKanban size={15} />} title="Clone to group" onClick={() => setCloningProfile(profile)} />
                     <Button icon={<Pencil size={15} />} onClick={() => setEditingProfile(profile)} />
@@ -296,6 +320,48 @@ function Profiles() {
   );
 }
 
+
+function ProfileCompatibilityDialog({ profile, result, loading, onClose }: { profile: BrowserProfile; result?: ProfileCompatibilityCheck; loading: boolean; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6 backdrop-blur-sm">
+      <div className="w-full max-w-xl rounded-2xl border border-line bg-white shadow-soft dark:border-white/10 dark:bg-[#17191c]">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4 dark:border-white/10">
+          <div>
+            <div className="text-lg font-semibold">Compatibility check</div>
+            <div className="text-sm text-gray-500">{profile.name}</div>
+          </div>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="p-5">
+          {loading && <div className="text-sm text-gray-500">Checking profile...</div>}
+          {result && (
+            <>
+              <div className="mb-4 flex items-center justify-between rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
+                <div>
+                  <div className="text-sm text-gray-500">Profile score</div>
+                  <div className="text-2xl font-semibold">{result.score}/100</div>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-sm font-medium ${result.status === "good" ? "bg-emerald-100 text-emerald-700" : result.status === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{result.status}</span>
+              </div>
+              <div className="space-y-2">
+                {result.checks.map((check) => (
+                  <div key={check.key} className="flex items-start justify-between gap-3 rounded-lg border border-line p-3 text-sm dark:border-white/10">
+                    <div>
+                      <div className="font-medium">{check.label}</div>
+                      <div className="text-gray-500">{check.detail}</div>
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-xs ${check.status === "pass" ? "bg-emerald-100 text-emerald-700" : check.status === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{check.status}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 text-xs text-gray-500">This is a preflight check of local profile settings and proxy health. It cannot guarantee how a specific site will score the session.</div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ProfileOsIcon({ operatingSystem }: { operatingSystem?: BrowserProfile["operatingSystem"] }) {
   if (operatingSystem === "macos") return <Apple size={16} />;

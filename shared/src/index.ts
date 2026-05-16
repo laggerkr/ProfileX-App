@@ -30,6 +30,13 @@ export interface ProxySettings {
   latencyMs?: number;
 }
 
+export interface ProfileCompatibilityCheck {
+  profileId: string;
+  score: number;
+  status: "good" | "warning" | "risk";
+  checks: Array<{ key: string; label: string; status: "pass" | "warning" | "fail"; detail: string }>;
+}
+
 export interface RdpConnection {
   id: string;
   name: string;

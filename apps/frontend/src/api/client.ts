@@ -1,4 +1,4 @@
-import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
+import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProfileCompatibilityCheck, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
 
 const apiBase = (window as any).profilex?.apiBaseUrl ?? "/api";
 const AUTH_TOKEN_KEY = "profilex.authToken";
@@ -45,6 +45,7 @@ export const api = {
   deleteProfile: (id: string) => request<{ deleted: boolean }>(`/profiles/${id}`, { method: "DELETE" }),
   cloneProfile: (id: string) => request<BrowserProfile>(`/profiles/${id}/clone`, { method: "POST" }),
   archiveProfile: (id: string) => request<BrowserProfile>(`/profiles/${id}/archive`, { method: "POST" }),
+  checkProfileCompatibility: (id: string) => request<ProfileCompatibilityCheck>(`/profiles/${id}/compatibility-check`, { method: "POST" }),
   launchProfile: (id: string) => request<{ profileId: string }>(`/profiles/${id}/launch`, { method: "POST", body: JSON.stringify({}) }),
   stopProfile: (id: string) => request<{ profileId: string }>(`/profiles/${id}/stop`, { method: "POST" }),
   browserStatus: () => request<{ ok: boolean; engine: string; runningProfiles: number; executablePath?: string; error?: string }>("/browser/status"),
