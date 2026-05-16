@@ -36,6 +36,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   register: (input: { name: string; email: string; password: string }) => request<AuthSession>("/auth/register", { method: "POST", body: JSON.stringify(input) }),
   login: (input: { email: string; password: string }) => request<AuthSession>("/auth/login", { method: "POST", body: JSON.stringify(input) }),
+  localSession: () => request<AuthSession>("/auth/local-session", { method: "POST" }),
   me: () => request<AuthUser>("/auth/me"),
   logout: () => request<{ loggedOut: boolean }>("/auth/logout", { method: "POST" }),
   dashboard: () => request<DashboardStats>("/dashboard"),

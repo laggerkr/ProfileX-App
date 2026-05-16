@@ -10,13 +10,20 @@ import { useWorkspaceStore } from "./store/useWorkspaceStore";
 export function App() {
   const { activePage, refresh } = useWorkspaceStore();
   const [isLocked, setLocked] = useState(() => getAppLockSettings().enabled);
-  const authUser = getLocalWorkspaceUser();
+  const [authUser, setAuthUser] = useState<AuthUser>(() => getLocalWorkspaceUser());
   useTheme();
 
   useEffect(() => {
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), 5000);
-    return () => window.clearInterval(interval);
+    let interval: number | undefined;
+    void api.localSession().then((session) => {
+      setAuthToken(session.token);
+      setAuthUser(session.user);
+      void refresh();
+      interval = window.setInterval(() => void refresh(), 5000);
+    });
+    return () => {
+      if (interval) window.clearInterval(interval);
+    };
   }, [refresh]);
 
   if (isLocked) return <AppLockGate onUnlock={() => setLocked(false)} />;

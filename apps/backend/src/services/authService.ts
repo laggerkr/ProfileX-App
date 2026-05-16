@@ -23,6 +23,18 @@ export function registerUser(db: AppDatabase, input: { name?: string; email?: st
   return createSession(db, { id, name, email, created_at: now });
 }
 
+export function createLocalSession(db: AppDatabase): AuthSession {
+  const email = "local@profilex.local";
+  const existing = db.prepare("SELECT * FROM app_users WHERE email = ?").get(email) as UserRow | undefined;
+  if (existing) return createSession(db, existing);
+  const now = new Date().toISOString();
+  const user = { id: "local-user", name: "Local user", email, created_at: now };
+  db.prepare("INSERT INTO app_users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)").run(
+    user.id, user.name, user.email, hashPassword(crypto.randomBytes(32).toString("hex")), user.created_at
+  );
+  return createSession(db, user);
+}
+
 export function loginUser(db: AppDatabase, input: { email?: string; password?: string }): AuthSession {
   const email = normalizeEmail(input.email);
   const password = String(input.password ?? "");

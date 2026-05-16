@@ -12,7 +12,7 @@ import { deleteProxylineSettings, getProxylineSettings, getSmtpSettings, updateP
 import { sendInvitationEmail, testSmtpSettings } from "./services/smtpService.js";
 import { getProxylineAccountSummary, importProxylineProxies } from "./services/proxylineService.js";
 import type { ProxySettings } from "@profilex/shared";
-import { getUserByToken, loginUser, logoutUser, registerUser } from "./services/authService.js";
+import { createLocalSession, getUserByToken, loginUser, logoutUser, registerUser } from "./services/authService.js";
 import { createRdpConnection, deleteRdpConnection, launchRdpConnection, listRdpConnections, updateRdpConnection } from "./services/rdpService.js";
 import { autoFixProfileCompatibility, checkProfileCompatibility } from "./services/profileCompatibilityService.js";
 
@@ -22,6 +22,7 @@ export function createRoutes(db: AppDatabase) {
   router.get("/health", (_req, res) => res.json({ data: { ok: true } }));
   router.post("/auth/register", (req, res) => res.status(201).json({ data: registerUser(db, req.body) }));
   router.post("/auth/login", (req, res) => res.json({ data: loginUser(db, req.body) }));
+  router.post("/auth/local-session", (_req, res) => res.json({ data: createLocalSession(db) }));
   router.get("/auth/me", (req, res) => {
     const user = getUserByToken(db, getBearerToken(req.headers.authorization));
     if (!user) return res.status(401).json({ error: "Unauthorized" });
