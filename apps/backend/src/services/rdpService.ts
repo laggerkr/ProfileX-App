@@ -43,14 +43,20 @@ export function launchRdpConnection(db: AppDatabase, id: string) {
   const connection = getRdpConnection(db, id, { includePassword: true });
   if (!connection) return undefined;
   if (process.platform !== "win32") throw new Error("RDP launch is supported only on Windows.");
-  const target = connection.domain ? `${connection.domain}\${connection.username}` : connection.username;
+  const target = buildRdpUsername(connection);
   if (connection.password) {
+    spawnSync("cmdkey.exe", ["/delete:TERMSRV/" + connection.host], { windowsHide: true, stdio: "ignore" });
     spawnSync("cmdkey.exe", ["/generic:TERMSRV/" + connection.host, "/user:" + target, "/pass:" + connection.password], { windowsHide: true, stdio: "ignore" });
   }
   spawn("mstsc.exe", ["/v:" + connection.host], { detached: true, windowsHide: false, stdio: "ignore" }).unref();
   const launchedAt = new Date().toISOString();
   db.prepare("UPDATE rdp_connections SET last_launched_at=?, updated_at=? WHERE id=?").run(launchedAt, launchedAt, id);
   return getRdpConnection(db, id);
+}
+
+function buildRdpUsername(connection: RdpConnection) {
+  if (!connection.domain || connection.username.includes("\\") || connection.username.includes("@")) return connection.username;
+  return `${connection.domain}\\${connection.username}`;
 }
 
 function normalizeInput(input: Partial<RdpConnection>, createdAt = new Date().toISOString(), id = nanoid()): RdpConnection {
