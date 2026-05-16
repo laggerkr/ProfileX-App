@@ -449,9 +449,9 @@ function ProfileEditorDialog({
     height: String(profile?.fingerprint.screen.height ?? 900)
   });
   const [newProxy, setNewProxy] = useState({
-    protocol: "http" as ProxySettings["protocol"],
     host: "",
-    port: "",
+    httpPort: "",
+    socks5Port: "",
     username: "",
     password: "",
     group: "Profile proxies"
@@ -546,17 +546,22 @@ function ProfileEditorDialog({
     try {
       let proxyId = form.proxyId || undefined;
       if (form.proxyId === "__new__") {
-        const port = Number(newProxy.port);
-        if (!newProxy.host.trim() || !Number.isFinite(port)) {
-          setError("Proxy host and port are required.");
+        const httpPort = Number(newProxy.httpPort);
+        const socks5Port = Number(newProxy.socks5Port);
+        const hasHttpPort = Number.isFinite(httpPort);
+        const hasSocks5Port = Number.isFinite(socks5Port);
+        if (!newProxy.host.trim() || (!hasHttpPort && !hasSocks5Port)) {
+          setError("Proxy host and at least one port are required.");
           setSaving(false);
           return;
         }
         const createdProxy = await api.createProxy({
-          name: `${newProxy.protocol.toUpperCase()} ${newProxy.host.trim()}:${port}`,
-          protocol: newProxy.protocol,
+          name: `${newProxy.host.trim()}`,
+          protocol: hasHttpPort ? "http" : "socks5",
           host: newProxy.host.trim(),
-          port,
+          port: hasHttpPort ? httpPort : socks5Port,
+          httpPort: hasHttpPort ? httpPort : undefined,
+          socks5Port: hasSocks5Port ? socks5Port : undefined,
           username: newProxy.username.trim() || undefined,
           password: newProxy.password.trim() || undefined,
           group: newProxy.group.trim() || undefined
@@ -634,21 +639,11 @@ function ProfileEditorDialog({
             <div className="col-span-2 rounded-lg border border-line bg-gray-50 p-4 dark:border-white/10 dark:bg-[#202328]">
               <div className="mb-3 text-sm font-semibold">New proxy</div>
               <div className="grid grid-cols-6 gap-3">
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Type</span>
-                  <select
-                    className="h-10 w-full rounded-lg border border-line bg-white px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 dark:border-white/10 dark:bg-[#202328]"
-                    value={newProxy.protocol}
-                    onChange={(event) => updateNewProxy("protocol", event.target.value)}
-                  >
-                    <option value="http">HTTP</option>
-                    <option value="socks5">SOCKS5</option>
-                  </select>
-                </label>
                 <div className="col-span-2">
                   <TextInput label="Host / IP" value={newProxy.host} onChange={(value) => updateNewProxy("host", value)} />
                 </div>
-                <TextInput label="Port" value={newProxy.port} onChange={(value) => updateNewProxy("port", value)} />
+                <TextInput label="HTTP port" value={newProxy.httpPort} onChange={(value) => updateNewProxy("httpPort", value)} />
+                <TextInput label="SOCKS5 port" value={newProxy.socks5Port} onChange={(value) => updateNewProxy("socks5Port", value)} />
                 <TextInput label="Login" value={newProxy.username} onChange={(value) => updateNewProxy("username", value)} />
                 <TextInput label="Password" value={newProxy.password} onChange={(value) => updateNewProxy("password", value)} />
               </div>
