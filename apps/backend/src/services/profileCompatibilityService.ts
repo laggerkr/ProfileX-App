@@ -1,7 +1,18 @@
 import type { BrowserProfile, ProfileCompatibilityCheck, ProxySettings } from "@profilex/shared";
 import type { AppDatabase } from "../database/db.js";
-import { getProfile } from "./profileService.js";
+import { getProfile, updateProfile } from "./profileService.js";
 import { checkProxy, detectProxyCountry, getProxy } from "./proxyService.js";
+
+const countryDefaults: Record<string, { timezone: string; language: string }> = {
+  UA: { timezone: "Europe/Kyiv", language: "uk-UA" },
+  PL: { timezone: "Europe/Warsaw", language: "pl-PL" },
+  US: { timezone: "America/New_York", language: "en-US" },
+  DE: { timezone: "Europe/Berlin", language: "de-DE" },
+  GB: { timezone: "Europe/London", language: "en-GB" },
+  NL: { timezone: "Europe/Amsterdam", language: "nl-NL" },
+  FR: { timezone: "Europe/Paris", language: "fr-FR" },
+  CA: { timezone: "America/Toronto", language: "en-CA" }
+};
 
 const countryTimezones: Record<string, string[]> = {
   UA: ["Europe/Kyiv", "Europe/Kiev"],
@@ -17,6 +28,20 @@ const countryTimezones: Record<string, string[]> = {
 const countryLanguages: Record<string, string[]> = {
   UA: ["uk", "ru"], PL: ["pl"], US: ["en"], GB: ["en"], DE: ["de"], FR: ["fr"], NL: ["nl"], CA: ["en", "fr"]
 };
+
+export async function autoFixProfileCompatibility(db: AppDatabase, profileId: string) {
+  const profile = getProfile(db, profileId);
+  if (!profile) return undefined;
+  const proxy = profile.proxyId ? await resolveProxy(db, profile.proxyId) : undefined;
+  const defaults = proxy?.countryCode ? countryDefaults[proxy.countryCode] : undefined;
+  const fingerprint = {
+    ...profile.fingerprint,
+    ...(defaults ? { timezone: defaults.timezone, timezoneMode: "mask" as const, language: defaults.language, languageMode: "mask" as const } : {}),
+    webRtcPolicy: "disabled" as const
+  };
+  const updated = updateProfile(db, profile.id, { fingerprint });
+  return updated ? checkProfileCompatibility(db, profile.id) : undefined;
+}
 
 export async function checkProfileCompatibility(db: AppDatabase, profileId: string): Promise<ProfileCompatibilityCheck | undefined> {
   const profile = getProfile(db, profileId);

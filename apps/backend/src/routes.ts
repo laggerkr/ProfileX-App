@@ -14,7 +14,7 @@ import { getProxylineAccountSummary, importProxylineProxies } from "./services/p
 import type { ProxySettings } from "@profilex/shared";
 import { getUserByToken, loginUser, logoutUser, registerUser } from "./services/authService.js";
 import { createRdpConnection, deleteRdpConnection, launchRdpConnection, listRdpConnections, updateRdpConnection } from "./services/rdpService.js";
-import { checkProfileCompatibility } from "./services/profileCompatibilityService.js";
+import { autoFixProfileCompatibility, checkProfileCompatibility } from "./services/profileCompatibilityService.js";
 
 export function createRoutes(db: AppDatabase) {
   const router = Router();
@@ -102,6 +102,11 @@ export function createRoutes(db: AppDatabase) {
   router.post("/profiles/:id/archive", (req, res) => res.json({ data: updateProfile(db, req.params.id, { status: "archived" }) }));
   router.post("/profiles/:id/compatibility-check", async (req, res) => {
     const check = await checkProfileCompatibility(db, req.params.id);
+    if (!check) return res.status(404).json({ error: "Profile not found" });
+    return res.json({ data: check });
+  });
+  router.post("/profiles/:id/compatibility-fix", async (req, res) => {
+    const check = await autoFixProfileCompatibility(db, req.params.id);
     if (!check) return res.status(404).json({ error: "Profile not found" });
     return res.json({ data: check });
   });

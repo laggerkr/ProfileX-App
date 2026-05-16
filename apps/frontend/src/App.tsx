@@ -330,7 +330,18 @@ function ProfileCompatibilityDialog({ profile, result, loading, onClose }: { pro
             <div className="text-lg font-semibold">Compatibility check</div>
             <div className="text-sm text-gray-500">{profile.name}</div>
           </div>
-          <button onClick={onClose}><X size={18} /></button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => {
+                void api.autoFixProfileCompatibility(profile.id)
+                  .then(setCompatibilityResult)
+                  .catch((error) => alert(normalizeApiError(error)));
+              }}
+            >
+              Auto-fix
+            </Button>
+            <button onClick={onClose}><X size={18} /></button>
+          </div>
         </div>
         <div className="p-5">
           {loading && <div className="text-sm text-gray-500">Checking profile...</div>}
