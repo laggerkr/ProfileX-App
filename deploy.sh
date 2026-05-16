@@ -18,4 +18,4 @@ sudo ln -sf /etc/nginx/sites-available/profilex-api.conf /etc/nginx/sites-enable
 sudo nginx -t
 sudo systemctl reload nginx
 
-echo "ProfileX deployed. Backend migrations and owner seed run automatically during backend startup."
+echo "ProfileX API deployed. Run sudo bash deploy-web.sh to publish the web dashboard."
