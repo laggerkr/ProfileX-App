@@ -459,6 +459,16 @@ function ProfileEditorDialog({
   const [selectedProxyCredentials, setSelectedProxyCredentials] = useState({ username: "", password: "" });
 
   const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const updateOperatingSystem = (value: string) => {
+    const preset = getOperatingSystemPreset(value as BrowserProfile["operatingSystem"]);
+    setForm((current) => ({
+      ...current,
+      operatingSystem: value,
+      userAgent: preset.userAgent,
+      platform: preset.platform,
+      osCpu: preset.osCpu
+    }));
+  };
   const updateNewProxy = (key: keyof typeof newProxy, value: string) => setNewProxy((current) => ({ ...current, [key]: value }));
   const updateSelectedProxyCredentials = (key: keyof typeof selectedProxyCredentials, value: string) =>
     setSelectedProxyCredentials((current) => ({ ...current, [key]: value }));
@@ -646,7 +656,7 @@ function ProfileEditorDialog({
           )}
           <div className="col-span-2 mt-2 text-sm font-semibold">Browser</div>
           <SelectInput label="Tab behavior" value={form.tabBehavior} onChange={(value) => update("tabBehavior", value)} options={[{ value: "restore", label: "Restore last session" }, { value: "custom", label: "Open startup URLs" }]} />
-          <SelectInput label="Operating system" value={form.operatingSystem} onChange={(value) => update("operatingSystem", value)} options={[{ value: "macos", label: "macOS" }, { value: "windows", label: "Windows" }, { value: "linux", label: "Linux" }, { value: "android", label: "Android" }]} />
+          <SelectInput label="Operating system" value={form.operatingSystem} onChange={updateOperatingSystem} options={[{ value: "macos", label: "macOS" }, { value: "windows", label: "Windows" }, { value: "linux", label: "Linux" }, { value: "android", label: "Android" }]} />
           <SelectInput label="Browser" value={form.browserEngine} onChange={(value) => update("browserEngine", value)} options={[{ value: "chromium", label: "Mimic (Chromium)" }, { value: "firefox", label: "Stealthfox (Firefox / SOCKS5)" }]} />
           <SelectInput label="Storage" value={form.storageMode} onChange={(value) => update("storageMode", value)} options={[{ value: "cloud", label: "Cloud" }, { value: "device", label: "Device" }]} />
           <TextInput label="Startup URLs" value={form.startupUrls} onChange={(value) => update("startupUrls", value)} placeholder="https://app.company.com" />
@@ -692,6 +702,35 @@ function ProfileEditorDialog({
   );
 }
 
+function getOperatingSystemPreset(operatingSystem?: BrowserProfile["operatingSystem"]) {
+  if (operatingSystem === "macos") {
+    return {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      platform: "MacIntel",
+      osCpu: "Intel Mac OS X 14.0"
+    };
+  }
+  if (operatingSystem === "linux") {
+    return {
+      userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      platform: "Linux x86_64",
+      osCpu: "Linux x86_64"
+    };
+  }
+  if (operatingSystem === "android") {
+    return {
+      userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+      platform: "Linux armv8l",
+      osCpu: "Linux armv8l"
+    };
+  }
+  return {
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    platform: "Win32",
+    osCpu: "Windows NT 10.0; Win64; x64"
+  };
+}
+
 function splitList(value: string) {
   return value
     .split(/[\n,]+/)
@@ -711,16 +750,16 @@ function ProxyManager() {
   const [checkingAllProxies, setCheckingAllProxies] = useState(false);
   const [form, setForm] = useState({
     name: "",
-    protocol: "http" as ProxySettings["protocol"],
     host: "",
-    port: "",
+    httpPort: "",
+    socks5Port: "",
     username: "",
     password: ""
   });
   const updateProxyForm = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const resetProxyForm = () => {
     setEditingProxy(undefined);
-    setForm({ name: "", protocol: "http", host: "", port: "", username: "", password: "" });
+    setForm({ name: "", host: "", httpPort: "", socks5Port: "", username: "", password: "" });
     setProxyDialogOpen(false);
   };
   const filteredProxies = proxies;
@@ -750,13 +789,18 @@ function ProxyManager() {
     setSelectedProxyIds((current) => current.filter((id) => existingIds.has(id)));
   }, [proxies]);
   const addProxy = async () => {
-    const port = Number(form.port);
-    if (!form.host.trim() || !Number.isFinite(port)) return;
+    const httpPort = Number(form.httpPort);
+    const socks5Port = Number(form.socks5Port);
+    const hasHttpPort = Number.isFinite(httpPort);
+    const hasSocks5Port = Number.isFinite(socks5Port);
+    if (!form.host.trim() || (!hasHttpPort && !hasSocks5Port)) return;
     await createProxy({
       name: form.name.trim() || "New proxy",
-      protocol: form.protocol,
+      protocol: hasHttpPort ? "http" : "socks5",
       host: form.host.trim(),
-      port,
+      port: hasHttpPort ? httpPort : socks5Port,
+      httpPort: hasHttpPort ? httpPort : undefined,
+      socks5Port: hasSocks5Port ? socks5Port : undefined,
       username: form.username.trim() || undefined,
       password: form.password.trim() || undefined
     });
@@ -764,16 +808,16 @@ function ProxyManager() {
   };
   const openProxyCreate = () => {
     setEditingProxy(undefined);
-    setForm({ name: "", protocol: "http", host: "", port: "", username: "", password: "" });
+    setForm({ name: "", host: "", httpPort: "", socks5Port: "", username: "", password: "" });
     setProxyDialogOpen(true);
   };
   const startProxyEdit = (proxy: ProxySettings) => {
     setEditingProxy(proxy);
     setForm({
       name: proxy.name,
-      protocol: proxy.protocol,
       host: proxy.host,
-      port: String(proxy.port),
+      httpPort: proxy.httpPort ? String(proxy.httpPort) : "",
+      socks5Port: proxy.socks5Port ? String(proxy.socks5Port) : "",
       username: proxy.username ?? "",
       password: proxy.password ?? ""
     });
@@ -781,13 +825,18 @@ function ProxyManager() {
   };
   const saveProxyEdit = async () => {
     if (!editingProxy) return;
-    const port = Number(form.port);
-    if (!form.host.trim() || !Number.isFinite(port)) return;
+    const httpPort = Number(form.httpPort);
+    const socks5Port = Number(form.socks5Port);
+    const hasHttpPort = Number.isFinite(httpPort);
+    const hasSocks5Port = Number.isFinite(socks5Port);
+    if (!form.host.trim() || (!hasHttpPort && !hasSocks5Port)) return;
     await updateProxy(editingProxy.id, {
       name: form.name.trim() || editingProxy.name,
-      protocol: form.protocol,
+      protocol: hasHttpPort ? "http" : "socks5",
       host: form.host.trim(),
-      port,
+      port: hasHttpPort ? httpPort : socks5Port,
+      httpPort: hasHttpPort ? httpPort : undefined,
+      socks5Port: hasSocks5Port ? socks5Port : undefined,
       username: form.username.trim() || undefined,
       password: form.password,
       status: "unknown"
@@ -974,9 +1023,9 @@ function ProxyManager() {
 
 type ProxyEditorForm = {
   name: string;
-  protocol: ProxySettings["protocol"];
   host: string;
-  port: string;
+  httpPort: string;
+  socks5Port: string;
   username: string;
   password: string;
 };
@@ -1008,22 +1057,14 @@ function ProxyEditorDialog({
           <div className="col-span-12 md:col-span-5">
             <TextInput label="Name" value={form.name} onChange={(value) => onChange("name", value)} autoFocus />
           </div>
-          <label className="col-span-6 block text-sm md:col-span-3">
-            <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Type</span>
-            <select
-              className="h-10 w-full rounded-lg border border-line bg-white px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 dark:border-white/10 dark:bg-[#202328]"
-              value={form.protocol}
-              onChange={(event) => onChange("protocol", event.target.value)}
-            >
-              <option value="http">HTTP</option>
-              <option value="socks5">SOCKS5</option>
-            </select>
-          </label>
-          <div className="col-span-12 md:col-span-4">
+          <div className="col-span-12 md:col-span-7">
             <TextInput label="Host / IP" value={form.host} onChange={(value) => onChange("host", value)} />
           </div>
           <div className="col-span-6 md:col-span-3">
-            <TextInput label="Port" value={form.port} onChange={(value) => onChange("port", value)} />
+            <TextInput label="HTTP port" value={form.httpPort} onChange={(value) => onChange("httpPort", value)} />
+          </div>
+          <div className="col-span-6 md:col-span-3">
+            <TextInput label="SOCKS5 port" value={form.socks5Port} onChange={(value) => onChange("socks5Port", value)} />
           </div>
           <div className="col-span-6 md:col-span-4">
             <TextInput label="Login" value={form.username} onChange={(value) => onChange("username", value)} />
