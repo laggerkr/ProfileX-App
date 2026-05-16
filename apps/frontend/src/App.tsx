@@ -10,34 +10,19 @@ import { useWorkspaceStore } from "./store/useWorkspaceStore";
 export function App() {
   const { activePage, refresh } = useWorkspaceStore();
   const [isLocked, setLocked] = useState(() => getAppLockSettings().enabled);
-  const [authUser, setAuthUser] = useState<AuthUser>();
-  const [authReady, setAuthReady] = useState(false);
+  const authUser = getLocalWorkspaceUser();
   useTheme();
 
   useEffect(() => {
-    void api.me().then(setAuthUser).catch(() => setAuthToken()).finally(() => setAuthReady(true));
-  }, []);
-
-  useEffect(() => {
-    if (!authUser) return;
     void refresh();
     const interval = window.setInterval(() => void refresh(), 5000);
     return () => window.clearInterval(interval);
-  }, [authUser, refresh]);
-
-  const logout = async () => {
-    await api.logout().catch(() => undefined);
-    setAuthToken();
-    setAuthUser(undefined);
-  };
-
-  if (!authReady) return <div className="flex min-h-screen items-center justify-center bg-panel text-sm text-gray-500 dark:bg-[#111315]">Loading...</div>;
-  if (!authUser) return <LoginPage onAuthenticated={(session) => { setAuthToken(session.token); setAuthUser(session.user); }} />;
+  }, [refresh]);
 
   if (isLocked) return <AppLockGate onUnlock={() => setLocked(false)} />;
 
   return (
-    <Shell currentUser={authUser} onLogout={() => void logout()}>
+    <Shell currentUser={authUser} onLogout={() => undefined}>
       <div className="screen-enter">
         {activePage === "Dashboard" && <Dashboard />}
         {activePage === "Profiles" && <Profiles />}
@@ -2301,6 +2286,10 @@ function Settings() {
   );
 }
 
+
+function getLocalWorkspaceUser(): AuthUser {
+  return { id: "local-user", name: "Local user", email: "local@profilex.local", createdAt: new Date(0).toISOString() };
+}
 
 function normalizeApiError(error: unknown) {
   if (!(error instanceof Error)) return "Request failed.";
