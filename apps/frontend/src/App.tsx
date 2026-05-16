@@ -752,42 +752,12 @@ function splitList(value: string) {
 
 function RdpPage() {
   const [connections, setConnections] = useState<RdpConnection[]>([]);
-  const [form, setForm] = useState({ name: "", host: "", username: "", password: "", domain: "" });
   const [editing, setEditing] = useState<RdpConnection>();
+  const [isDialogOpen, setDialogOpen] = useState(false);
   const [status, setStatus] = useState<string>();
 
   const refreshRdp = async () => setConnections(await api.rdpConnections());
   useEffect(() => { void refreshRdp(); }, []);
-
-  const save = async () => {
-    if (editing) {
-      await api.updateRdpConnection(editing.id, {
-        name: form.name,
-        host: form.host,
-        username: form.username,
-        domain: form.domain || undefined,
-        ...(form.password ? { password: form.password } : {})
-      });
-      setStatus("RDP connection updated.");
-    } else {
-      await api.createRdpConnection({
-        name: form.name,
-        host: form.host,
-        username: form.username,
-        password: form.password,
-        domain: form.domain || undefined
-      });
-      setStatus("RDP connection added.");
-    }
-    setForm({ name: "", host: "", username: "", password: "", domain: "" });
-    setEditing(undefined);
-    await refreshRdp();
-  };
-
-  const startEdit = (connection: RdpConnection) => {
-    setEditing(connection);
-    setForm({ name: connection.name, host: connection.host, username: connection.username, password: "", domain: connection.domain ?? "" });
-  };
 
   const launch = async (connection: RdpConnection) => {
     try {
@@ -801,20 +771,14 @@ function RdpPage() {
 
   return (
     <section className="space-y-4">
-      <Panel title={editing ? "Edit RDP" : "Add RDP"}>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <TextInput label="Name" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
-          <TextInput label="IP / host" value={form.host} onChange={(value) => setForm((current) => ({ ...current, host: value }))} />
-          <TextInput label="Login" value={form.username} onChange={(value) => setForm((current) => ({ ...current, username: value }))} />
-          <TextInput label={editing?.hasPassword ? "Password (saved)" : "Password"} value={form.password} type="password" onChange={(value) => setForm((current) => ({ ...current, password: value }))} />
-          <TextInput label="Domain" value={form.domain} onChange={(value) => setForm((current) => ({ ...current, domain: value }))} />
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">RDP</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Manage and launch remote desktop connections.</p>
         </div>
-        <div className="mt-4 flex justify-end gap-2">
-          {editing && <Button onClick={() => { setEditing(undefined); setForm({ name: "", host: "", username: "", password: "", domain: "" }); }}>Cancel</Button>}
-          <Button variant="primary" onClick={() => void save()}>{editing ? "Save RDP" : "Add RDP"}</Button>
-        </div>
-        {status && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{status}</div>}
-      </Panel>
+        <Button variant="primary" icon={<Plus size={16} />} onClick={() => { setEditing(undefined); setDialogOpen(true); }}>Add RDP</Button>
+      </div>
+      {status && <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{status}</div>}
       <Panel title="Remote desktops">
         <div className="overflow-hidden rounded-xl border border-line dark:border-white/10">
           <table className="w-full text-left text-sm">
@@ -832,7 +796,7 @@ function RdpPage() {
                   <td className="px-3 py-2">
                     <div className="flex justify-end gap-2">
                       <Button onClick={() => void launch(connection)} icon={<Play size={15} />}>Open</Button>
-                      <Button onClick={() => startEdit(connection)} icon={<Pencil size={15} />} />
+                      <Button onClick={() => { setEditing(connection); setDialogOpen(true); }} icon={<Pencil size={15} />} />
                       <Button onClick={() => void api.deleteRdpConnection(connection.id).then(refreshRdp)} icon={<Trash2 size={15} />} />
                     </div>
                   </td>
@@ -843,7 +807,86 @@ function RdpPage() {
           </table>
         </div>
       </Panel>
+      {isDialogOpen && (
+        <RdpEditorDialog
+          connection={editing}
+          onClose={() => setDialogOpen(false)}
+          onSaved={async (message) => {
+            setStatus(message);
+            setDialogOpen(false);
+            await refreshRdp();
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+function RdpEditorDialog({ connection, onClose, onSaved }: { connection?: RdpConnection; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+  const [form, setForm] = useState({
+    name: connection?.name ?? "",
+    host: connection?.host ?? "",
+    username: connection?.username ?? "",
+    password: "",
+    domain: connection?.domain ?? ""
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const save = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (connection) {
+        await api.updateRdpConnection(connection.id, {
+          name: form.name,
+          host: form.host,
+          username: form.username,
+          domain: form.domain || undefined,
+          ...(form.password ? { password: form.password } : {})
+        });
+        await onSaved("RDP connection updated.");
+      } else {
+        await api.createRdpConnection({
+          name: form.name,
+          host: form.host,
+          username: form.username,
+          password: form.password,
+          domain: form.domain || undefined
+        });
+        await onSaved("RDP connection added.");
+      }
+    } catch (saveError) {
+      setError(normalizeApiError(saveError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-2xl border border-line bg-white shadow-soft dark:border-white/10 dark:bg-[#17191c]">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4 dark:border-white/10">
+          <div>
+            <div className="text-lg font-semibold">{connection ? "Edit RDP" : "Add RDP"}</div>
+            <div className="text-sm text-gray-500">Configure remote desktop connection details.</div>
+          </div>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="grid gap-3 p-5 sm:grid-cols-2">
+          <TextInput label="Name" value={form.name} autoFocus onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
+          <TextInput label="IP / host" value={form.host} onChange={(value) => setForm((current) => ({ ...current, host: value }))} />
+          <TextInput label="Login" value={form.username} onChange={(value) => setForm((current) => ({ ...current, username: value }))} />
+          <TextInput label={connection?.hasPassword ? "Password (saved)" : "Password"} value={form.password} type="password" onChange={(value) => setForm((current) => ({ ...current, password: value }))} />
+          <TextInput label="Domain" value={form.domain} onChange={(value) => setForm((current) => ({ ...current, domain: value }))} />
+        </div>
+        {error && <div className="mx-5 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+        <div className="flex justify-end gap-2 border-t border-line px-5 py-4 dark:border-white/10">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? "Saving..." : connection ? "Save RDP" : "Add RDP"}</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
