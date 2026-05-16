@@ -33,6 +33,7 @@ export function App() {
 
   if (!authReady) return <div className="flex min-h-screen items-center justify-center bg-panel text-sm text-gray-500 dark:bg-[#111315]">Loading...</div>;
   if (!authUser) return <LoginPage onAuthenticated={(session) => { setAuthToken(session.token); setAuthUser(session.user); }} />;
+
   if (isLocked) return <AppLockGate onUnlock={() => setLocked(false)} />;
 
   return (
