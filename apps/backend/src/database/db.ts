@@ -14,11 +14,28 @@ export interface AppDatabase {
 export async function openDatabase(): Promise<AppDatabase> {
   if (!DATABASE_URL) throw new Error("DATABASE_URL is required. PostgreSQL is the only supported backend runtime.");
   const pool = new Pool({ connectionString: DATABASE_URL });
+  await waitForPostgres(pool);
   const db = createDatabase(pool);
   const migration = await fs.readFile(new URL("../../migrations/001_init_postgres.sql", import.meta.url), "utf8");
   await db.exec(migration);
   await seed(db);
   return db;
+}
+
+async function waitForPostgres(pool: Pool) {
+  const attempts = Number(process.env.DB_CONNECT_RETRIES ?? 30);
+  const delayMs = Number(process.env.DB_CONNECT_RETRY_DELAY_MS ?? 2000);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await pool.query("SELECT 1");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("PostgreSQL is unavailable");
 }
 
 function createDatabase(pool: Pool): AppDatabase {

@@ -12,6 +12,7 @@ export const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "http://127.0.0.1:5173,htt
 export const REDIS_URL = process.env.REDIS_URL;
 export const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL ?? "15m";
 export const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30);
+export const REQUEST_BODY_LIMIT = process.env.REQUEST_BODY_LIMIT ?? "2mb";
 export const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 export const DISABLE_PUBLIC_REGISTRATION = process.env.DISABLE_PUBLIC_REGISTRATION === "true";

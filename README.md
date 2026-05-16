@@ -17,7 +17,7 @@ npm run dev
 ```
 `npm run dev` checks ports, starts PostgreSQL with Docker Compose when needed, waits for readiness, applies migrations, then starts backend, Vite, and Electron.
 
-## Docker
+## Docker development
 ```bash
 docker compose up -d postgres
 docker compose --profile redis up -d redis
@@ -25,13 +25,14 @@ docker compose up -d backend
 ```
 Use Redis only when needed by setting `REDIS_URL=redis://redis:6379`.
 
-## Production checks
+## Production deployment
 ```bash
-npm run build
-npm run typecheck
-npm run prod:setup
-npm run start:backend
+cp .env.production.example .env
+cp apps/backend/.env.production.example apps/backend/.env.production
+sudo bash install.sh
+sudo bash deploy.sh
 ```
+See `README_DEPLOY.md` for Google Cloud, DNS, SSL, update, rollback, and backup instructions.
 
 ## Health
 - `GET /api/health`
@@ -41,7 +42,7 @@ npm run start:backend
 ## Security
 - JWT access tokens + refresh tokens
 - bcrypt password hashes
-- Helmet, CORS allowlist, auth/general rate limits, 2 MB request limit
+- Helmet, CORS allowlist, auth/general rate limits, configurable request limit
 - Electron `contextIsolation`, sandboxed renderer, validated IPC, CSP
 
 ## Authentication and invitations
