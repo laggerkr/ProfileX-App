@@ -509,7 +509,6 @@ function ProfileEditorDialog({
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  const [diagnostic, setDiagnostic] = useState<string>();
   const [detectedProxyCountries, setDetectedProxyCountries] = useState<Record<string, Pick<ProxySettings, "country" | "countryCode">>>({});
   const [form, setForm] = useState({
     name: profile?.name ?? "",
@@ -596,15 +595,6 @@ function ProfileEditorDialog({
       .catch(() => undefined);
   }, [selectedProxy?.id, selectedProxy?.country]);
 
-  const checkApi = async () => {
-    setDiagnostic("Checking API...");
-    try {
-      const health = await api.health();
-      setDiagnostic(`API URL: ${apiUrl}\nHealth: ${health.ok ? "ok" : "not ok"}`);
-    } catch (healthError) {
-      setDiagnostic(`API URL: ${apiUrl}\n${normalizeApiError(healthError)}`);
-    }
-  };
 
   const submit = async () => {
     const name = form.name.trim();
@@ -924,7 +914,6 @@ function RdpEditorDialog({ connection, onClose, onSaved }: { connection?: RdpCon
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [diagnostic, setDiagnostic] = useState<string>();
 
   const save = async () => {
     setBusy(true);
