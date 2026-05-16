@@ -176,6 +176,7 @@ export interface ProfileSyncPayload {
 export interface AuthSession {
   user: AuthUser;
   token: string;
+  refreshToken?: string;
 }
 
 export interface ProxylineSettings {

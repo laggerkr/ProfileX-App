@@ -1,25 +1,3 @@
-import cors from "cors";
-import express from "express";
-import rateLimit from "express-rate-limit";
-import { CORS_ORIGIN, HOST, PORT } from "./config.js";
-import { openDatabase } from "./database/db.js";
-import { createRoutes } from "./routes.js";
-import { attachRealtime } from "./realtime.js";
-import http from "node:http";
-
-const app = express();
-const db = await openDatabase();
-const allowedOrigins = CORS_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean);
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
-
-app.use(cors({ origin: allowedOrigins, credentials: true }));
-app.use(express.json({ limit: "10mb" }));
-app.use("/api/auth", authLimiter);
-app.use("/api", createRoutes(db));
-app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error(error);
-  res.status(500).json({ error: error instanceof Error ? error.message : "Unexpected API error" });
-});
-const server = http.createServer(app);
-attachRealtime(server);
-server.listen(PORT, HOST, () => console.log(`ProfileX API listening on http://${HOST}:${PORT}`));
+import cors from "cors"; import express from "express"; import helmet from "helmet"; import rateLimit from "express-rate-limit"; import http from "node:http"; import { CORS_ORIGIN, HOST, PORT } from "./config.js"; import { openDatabase } from "./database/db.js"; import { createRoutes } from "./routes.js"; import { attachRealtime } from "./realtime.js"; import { initCache } from "./cache.js"; import { log, logError } from "./logger.js";
+const app=express(), db=await openDatabase(); await initCache(); const origins=CORS_ORIGIN.split(',').map(x=>x.trim()).filter(Boolean); const authLimiter=rateLimit({windowMs:15*60*1000,limit:20,standardHeaders:true,legacyHeaders:false}); const generalLimiter=rateLimit({windowMs:60*1000,limit:300,standardHeaders:true,legacyHeaders:false});
+app.set('trust proxy',1); app.use(helmet()); app.use(cors({origin:origins,credentials:true})); app.use(express.json({limit:'2mb'})); app.use('/api/auth',authLimiter); app.use('/api',generalLimiter); app.use('/api',createRoutes(db)); app.use((error:unknown,_q:express.Request,r:express.Response,_n:express.NextFunction)=>{logError('backend','request failed',error); r.status(500).json({error:error instanceof Error?error.message:'Unexpected API error'})}); const server=http.createServer(app); attachRealtime(server); server.listen(PORT,HOST,()=>log('backend','listening',{host:HOST,port:PORT}));

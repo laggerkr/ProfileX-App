@@ -1,10 +1,10 @@
-import type { AuthUser, BrowserProfile, FingerprintSettings, ProfileCompatibilityCheck, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
+import type { AuthSession, AuthUser, BrowserProfile, FingerprintSettings, ProfileCompatibilityCheck, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
 import { Activity, Apple, Chrome, Copy, Database, Fingerprint, FolderKanban, Globe2, KeyRound, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
 import { Shell } from "./components/Shell";
 import { StatCard } from "./components/StatCard";
-import { api, setAuthToken, type EmailResult } from "./api/client";
+import { api, setAuthToken, setRefreshToken, type EmailResult } from "./api/client";
 import { useWorkspaceStore } from "./store/useWorkspaceStore";
 
 export function App() {
@@ -15,7 +15,7 @@ export function App() {
   useTheme();
 
   useEffect(() => {
-    void api.me().then(setAuthUser).catch(() => setAuthToken()).finally(() => setAuthReady(true));
+    void api.me().then(setAuthUser).catch(() => { setAuthToken(); setRefreshToken(); }).finally(() => setAuthReady(true));
   }, []);
 
   useEffect(() => {
@@ -28,11 +28,12 @@ export function App() {
   const logout = async () => {
     await api.logout().catch(() => undefined);
     setAuthToken();
+    setRefreshToken();
     setAuthUser(undefined);
   };
 
   if (!authReady) return <div className="flex min-h-screen items-center justify-center bg-panel text-sm text-gray-500 dark:bg-[#111315]">Loading...</div>;
-  if (!authUser) return <LoginPage onAuthenticated={(session) => { setAuthToken(session.token); setAuthUser(session.user); }} />;
+  if (!authUser) return <LoginPage onAuthenticated={(session) => { setAuthToken(session.token); setRefreshToken(session.refreshToken); setAuthUser(session.user); }} />;
   if (isLocked) return <AppLockGate onUnlock={() => setLocked(false)} />;
 
   return (
@@ -2512,7 +2513,7 @@ function TelegramIcon() {
   return <span className="text-lg text-sky-500">?</span>;
 }
 
-function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: { token: string; user: AuthUser }) => void }) {
+function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: AuthSession) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -2528,6 +2529,7 @@ function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: { token: s
         ? await api.login({ email, password })
         : await api.register({ name, email, password });
       setAuthToken(session.token);
+      setRefreshToken(session.refreshToken);
       onAuthenticated?.(session);
     } catch (submitError) {
       setError(normalizeApiError(submitError));

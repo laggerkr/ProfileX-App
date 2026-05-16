@@ -2,6 +2,7 @@ import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats
 
 const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/api` : ((window as any).profilex?.apiBaseUrl ?? "/api");
 const AUTH_TOKEN_KEY = "profilex.authToken";
+const REFRESH_TOKEN_KEY = "profilex.refreshToken";
 
 export function getAuthToken() {
   return window.localStorage.getItem(AUTH_TOKEN_KEY);
@@ -11,6 +12,11 @@ export function setAuthToken(token?: string) {
   if (token) window.localStorage.setItem(AUTH_TOKEN_KEY, token);
   else window.localStorage.removeItem(AUTH_TOKEN_KEY);
 }
+export function setRefreshToken(token?: string) {
+  if (token) window.localStorage.setItem(REFRESH_TOKEN_KEY, token);
+  else window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+}
+function getRefreshToken() { return window.localStorage.getItem(REFRESH_TOKEN_KEY); }
 
 export interface EmailResult {
   sent?: boolean;
@@ -28,6 +34,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers
     }
   });
+  if (response.status === 401 && path !== "/auth/refresh" && getRefreshToken()) {
+    const refreshed = await fetch(`${apiBase}/auth/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refreshToken: getRefreshToken() }) });
+    if (refreshed.ok) {
+      const session = (await refreshed.json()) as ApiEnvelope<AuthSession>;
+      setAuthToken(session.data.token); setRefreshToken(session.data.refreshToken);
+      return request<T>(path, init);
+    }
+  }
   if (!response.ok) throw new Error(await response.text());
   const envelope = (await response.json()) as ApiEnvelope<T>;
   return envelope.data;
@@ -37,7 +51,7 @@ export const api = {
   register: (input: { name: string; email: string; password: string }) => request<AuthSession>("/auth/register", { method: "POST", body: JSON.stringify(input) }),
   login: (input: { email: string; password: string }) => request<AuthSession>("/auth/login", { method: "POST", body: JSON.stringify(input) }),
   me: () => request<AuthUser>("/auth/me"),
-  logout: () => request<{ loggedOut: boolean }>("/auth/logout", { method: "POST" }),
+  logout: () => request<{ loggedOut: boolean }>("/auth/logout", { method: "POST", body: JSON.stringify({ refreshToken: getRefreshToken() }) }),
   dashboard: () => request<DashboardStats>("/dashboard"),
   profiles: () => request<BrowserProfile[]>("/profiles"),
   createProfile: (profile: Partial<BrowserProfile>) => request<BrowserProfile>("/profiles", { method: "POST", body: JSON.stringify(profile) }),

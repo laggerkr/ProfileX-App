@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { realisticFingerprintPreset } from "./fingerprintService.js";
 import { logActivity } from "./activityService.js";
 import type { AppDatabase } from "../database/db.js";
+import { log, logError } from "../logger.js";
 
 type ProfileRow = any;
 function mapProfile(row: ProfileRow): BrowserProfile {
@@ -62,7 +63,7 @@ export async function syncProfileState(db: AppDatabase, profileId: string, paylo
       ON CONFLICT (profile_id) DO UPDATE SET local_storage=EXCLUDED.local_storage,session_storage=EXCLUDED.session_storage,storage_state=EXCLUDED.storage_state,session_metadata=EXCLUDED.session_metadata,browser_state=EXCLUDED.browser_state,updated_at=EXCLUDED.updated_at`,
       [profileId, JSON.stringify(payload.localStorage ?? {}), JSON.stringify(payload.sessionStorage ?? {}), JSON.stringify(payload.storageState ?? null), JSON.stringify(payload.sessionMetadata ?? {}), JSON.stringify(payload.browserState ?? {}), now]);
     await tx.exec("UPDATE profiles SET last_sync_at=$1, updated_at=$1, version=version+1 WHERE id=$2", [now, profileId]);
-    await logActivity(tx, "profile.synced", profile.name, actorId);
+    await logActivity(tx, "profile.synced", profile.name, actorId); log("browser-sync", "synced", { profileId });
     return { profileId, syncedAt: now, version: (profile.version ?? 1) + 1 };
   });
 }

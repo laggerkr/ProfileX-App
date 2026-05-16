@@ -1,0 +1,62 @@
+name: profilex
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: profilex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-profilex}
+      POSTGRES_USER: ${POSTGRES_USER:-profilex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-profilex-dev-password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-profilex} -d ${POSTGRES_DB:-profilex}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+  redis:
+    image: redis:7-alpine
+    container_name: profilex-redis
+    profiles: ["redis"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: profilex-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - apps/backend/.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4387
+      DATABASE_URL: postgresql://${POSTGRES_USER:-profilex}:${POSTGRES_PASSWORD:-profilex-dev-password}@postgres:5432/${POSTGRES_DB:-profilex}
+      REDIS_URL: ${REDIS_URL:-}
+    ports:
+      - "${BACKEND_PORT:-4387}:4387"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4387/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+volumes:
+  postgres_data:
+  redis_data:

@@ -166,3 +166,32 @@ CREATE TABLE IF NOT EXISTS team_invitations (
 CREATE INDEX IF NOT EXISTS idx_profiles_group ON profiles(profile_group_id);
 CREATE INDEX IF NOT EXISTS idx_profiles_updated ON profiles(updated_at);
 CREATE INDEX IF NOT EXISTS idx_assignments_user ON profile_assignments(user_id);
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS proxy_pools (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  geo_tags TEXT[] NOT NULL DEFAULT '{}',
+  sticky_sessions BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE proxies ADD COLUMN IF NOT EXISTS pool_id TEXT REFERENCES proxy_pools(id) ON DELETE SET NULL;
+ALTER TABLE proxies ADD COLUMN IF NOT EXISTS geo_tags TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE proxies ADD COLUMN IF NOT EXISTS sticky_session_key TEXT;
+CREATE TABLE IF NOT EXISTS proxy_assignments (
+  id TEXT PRIMARY KEY,
+  pool_id TEXT REFERENCES proxy_pools(id) ON DELETE CASCADE,
+  proxy_id TEXT NOT NULL REFERENCES proxies(id) ON DELETE CASCADE,
+  profile_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sticky_until TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_proxy_assignments_profile ON proxy_assignments(profile_id);

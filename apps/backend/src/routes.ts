@@ -8,18 +8,20 @@ import { acceptTeamInvitation, assignProfileGroup, createTeamGroup, createTeamMe
 import { deleteProxylineSettings, getProxylineSettings, getSmtpSettings, updateProxylineSettings, updateSmtpSettings } from "./services/settingsService.js";
 import { sendInvitationEmail, testSmtpSettings } from "./services/smtpService.js";
 import { getProxylineAccountSummary, importProxylineProxies } from "./services/proxylineService.js";
-import { getUserByToken, loginUser, logoutUser, registerUser } from "./services/authService.js";
+import { getUserByToken, loginUser, logoutUser, refreshSession, registerUser } from "./services/authService.js";
 import { createRdpConnection, deleteRdpConnection, launchRdpConnection, listRdpConnections, updateRdpConnection } from "./services/rdpService.js";
 import { autoFixProfileCompatibility, checkProfileCompatibility } from "./services/profileCompatibilityService.js";
 import { acquireProfileLock, listActiveSessions, releaseProfileLock } from "./services/profileLockService.js";
-import { broadcast } from "./realtime.js";
+import { broadcast, websocketHealth } from "./realtime.js";
+import { cacheHealth } from "./cache.js";
+import { logError } from "./logger.js";
 
 export function createRoutes(db:AppDatabase){const router=Router();
-router.get('/health',(_q,r)=>r.json({data:{ok:true}}));
+router.get('/health',(_q,r)=>r.json({data:{ok:true}})); router.get('/health/db',async(_q,r)=>{try{await db.one('SELECT 1'); return r.json({data:{ok:true}})}catch{return r.status(503).json({data:{ok:false}})}}); router.get('/health/ws',async(_q,r)=>r.json({data:{...websocketHealth(),cache:await cacheHealth()}}));
 router.post('/auth/register',async(q,r)=>r.status(201).json({data:await registerUser(db,q.body)}));
-router.post('/auth/login',async(q,r)=>r.json({data:await loginUser(db,q.body)}));
+router.post('/auth/login',async(q,r)=>r.json({data:await loginUser(db,q.body)})); router.post('/auth/refresh',async(q,r)=>r.json({data:await refreshSession(db,q.body.refreshToken)}));
 router.get('/auth/me',(q,r)=>{const u=getUserByToken(db,bearer(q.headers.authorization)); return u?r.json({data:u}):r.status(401).json({error:'Unauthorized'})});
-router.post('/auth/logout',(q,r)=>{logoutUser(db,bearer(q.headers.authorization)); return r.json({data:{loggedOut:true}})});
+router.post('/auth/logout',async(q,r)=>{await logoutUser(db,q.body.refreshToken); return r.json({data:{loggedOut:true}})});
 router.use((q,r,n)=>{const u=getUserByToken(db,bearer(q.headers.authorization)); if(!u)return r.status(401).json({error:'Unauthorized'}); r.locals.authUser=u; n()});
 router.get('/dashboard',async(_q,r)=>{const [profiles,proxies,sessions]=await Promise.all([listProfilesForUser(db,r.locals.authUser),listProxies(db),listActiveSessions(db)]); const healthy=proxies.filter(p=>p.status==='healthy').length; const recentLaunches=profiles.filter(p=>p.lastLaunchedAt).sort((a,b)=>String(b.lastLaunchedAt).localeCompare(String(a.lastLaunchedAt))).slice(0,5).map(p=>({profileId:p.id,name:p.name,launchedAt:p.lastLaunchedAt!})); const rows=await db.query<any>(`SELECT to_char(created_at,'YYYY-MM-DD') AS day,COUNT(*)::int AS launches FROM browser_launch_logs WHERE created_at >= now()-interval '6 days' GROUP BY 1`); const map=new Map(rows.map(x=>[x.day,x.launches])); const usage=Array.from({length:7},(_,i)=>{const d=new Date(); d.setDate(d.getDate()-(6-i)); const day=d.toISOString().slice(0,10); return{day:d.toLocaleDateString('en-US',{weekday:'short'}),launches:map.get(day)??0}}); return r.json({data:{profiles:profiles.length,onlineProfiles:sessions.length,proxyHealth:proxies.length?Math.round(healthy/proxies.length*100):100,recentLaunches,usage}})});
 router.get('/profiles',async(_q,r)=>r.json({data:await listProfilesForUser(db,r.locals.authUser)}));
@@ -30,7 +32,7 @@ router.patch('/profiles/:id',async(q,r)=>{const p=await updateProfile(db,q.param
 router.post('/profiles/:id/clone',async(q,r)=>{const p=await cloneProfile(db,q.params.id,r.locals.authUser.id); return p?r.status(201).json({data:p}):r.status(404).json({error:'Profile not found'})});
 router.post('/profiles/:id/archive',async(q,r)=>r.json({data:await updateProfile(db,q.params.id,{status:'archived'},r.locals.authUser.id)}));
 router.post('/profiles/:id/assign',async(q,r)=>{if(r.locals.authUser.role!=='admin')return r.status(403).json({error:'Forbidden'}); const x=await assignProfileToUser(db,q.params.id,String(q.body.userId??'')); return x?r.json({data:x}):r.status(404).json({error:'Profile or user not found'})});
-router.post('/profiles/:id/sync',async(q,r)=>{const x=await syncProfileState(db,q.params.id,q.body,r.locals.authUser.id); if(!x)return r.status(404).json({error:'Profile not found'}); broadcast('profile.synced',x); return r.json({data:x})});
+router.post('/profiles/:id/sync',async(q,r)=>{try{const x=await syncProfileState(db,q.params.id,q.body,r.locals.authUser.id); if(!x)return r.status(404).json({error:'Profile not found'}); broadcast('profile.synced',x); return r.json({data:x})}catch(error){logError('sync-failed','profile sync failed',error,{profileId:q.params.id,userId:r.locals.authUser.id}); throw error}});
 router.post('/profiles/:id/lock',async(q,r)=>{const x=await acquireProfileLock(db,q.params.id,r.locals.authUser,meta(q)); if(!x.acquired)return r.status(409).json({error:'Profile already in use',data:x}); broadcast('profile.locked',{profileId:q.params.id,userId:r.locals.authUser.id}); return r.json({data:x})});
 router.post('/profiles/:id/unlock',async(q,r)=>{const x=await releaseProfileLock(db,q.params.id,r.locals.authUser,Boolean(q.body.force&&r.locals.authUser.role==='admin')); broadcast('profile.unlocked',{profileId:q.params.id}); return r.json({data:x})});
 router.post('/profiles/:id/launch',async(q,r)=>{const x=await acquireProfileLock(db,q.params.id,r.locals.authUser,meta(q)); if(!x.acquired)return r.status(409).json({error:'Profile already in use',data:x}); const p=await updateProfile(db,q.params.id,{status:'running',lastLaunchedAt:new Date().toISOString()},r.locals.authUser.id); broadcast('profile.locked',{profileId:q.params.id,userId:r.locals.authUser.id}); return r.json({data:{profileId:q.params.id,lock:x,profile:p}})});

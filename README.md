@@ -1,54 +1,45 @@
-# Workspace Profile Manager
+# ProfileX
 
-Internal desktop application for browser workspace isolation, QA, multi-account corporate workflows, and secure separation of work sessions.
+ProfileX is an Electron desktop client with a cloud backend for browser profiles, proxies, fingerprints, cookies, groups, and permissions.
 
-## Stack
+## Architecture
+- Electron launches Chromium/Firefox locally on the user PC.
+- PostgreSQL backend stores profiles, browser state, proxy metadata, locks, logs, and team data.
+- Optional Redis accelerates realtime sync, locks, websocket sessions, and future distributed rate limits.
+- Production VPS runs only the API; it never launches Playwright browsers.
 
-- Electron desktop shell
-- React + TypeScript + Tailwind UI renderer
-- Node.js + Express local REST API
-- SQLite local data store
-- Playwright persistent Chromium contexts
-- Optional Python FastAPI worker for QA automation and diagnostics
-
-## Quick Start
-
+## Local development
 ```bash
+cp .env.example .env
+cp apps/backend/.env.example apps/backend/.env
 npm install
 npm run dev
 ```
+`npm run dev` checks ports, starts PostgreSQL with Docker Compose when needed, waits for readiness, applies migrations, then starts backend, Vite, and Electron.
 
-The frontend runs on `http://localhost:5173`, the local API on `http://localhost:4387`, and Electron opens the desktop shell.
-
-## Optional Python Worker
-
-The Python worker is a sidecar service for tasks that are convenient in Python: QA checks, proxy diagnostics, page checks, reporting, and automation experiments.
-
+## Docker
 ```bash
-cd apps/python-worker
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python -m playwright install chromium
-python src/main.py
+docker compose up -d postgres
+docker compose --profile redis up -d redis
+docker compose up -d backend
+```
+Use Redis only when needed by setting `REDIS_URL=redis://redis:6379`.
+
+## Production checks
+```bash
+npm run build
+npm run typecheck
+npm run prod:setup
+npm run start:backend
 ```
 
-The Node API checks it through:
+## Health
+- `GET /api/health`
+- `GET /api/health/db`
+- `GET /api/health/ws`
 
-- `GET /api/worker/python/status`
-- `POST /api/worker/python/proxy-check`
-- `POST /api/worker/python/page-check`
-
-This keeps the production desktop runtime fast and TypeScript-native while still giving the team a Python extension point.
-
-## Build
-
-```bash
-npm run package
-```
-
-Installers are generated in `release/` for Windows, macOS, and Linux.
-
-## Security Notes
-
-Secrets are encrypted locally with AES-256-GCM. For production deployment, set `PROFILEX_MASTER_KEY` through the OS credential store or company device-management policy.
+## Security
+- JWT access tokens + refresh tokens
+- bcrypt password hashes
+- Helmet, CORS allowlist, auth/general rate limits, 2 MB request limit
+- Electron `contextIsolation`, sandboxed renderer, validated IPC, CSP
