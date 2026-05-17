@@ -1,4 +1,4 @@
-import type { AuthSession, AuthUser, BrowserProfile, Invitation, FingerprintSettings, ProfileCompatibilityCheck, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, TeamWorkspaceData } from "@profilex/shared";
+import { canAccessPage, canChangeRole, canClearLogs, canCreateProfile, canDeleteProfile, canDeleteUser, canEditProfile, canInviteRole, canLaunchProfile, canManageFingerprints, canManageRdp, canManageUsers, roleDescriptions, type AuthSession, type AuthUser, type BrowserProfile, type Invitation, type FingerprintSettings, type ProfileCompatibilityCheck, type ProxylineSettings, type ProxySettings, type RdpConnection, type Role, type SmtpSettings, type TeamWorkspaceData, type WorkspacePage } from "@profilex/shared";
 import { Activity, Apple, Chrome, Copy, Database, Fingerprint, FolderKanban, Globe2, KeyRound, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
@@ -8,7 +8,7 @@ import { ApiRequestError, api, apiUrl, setAuthToken, setRefreshToken, type Email
 import { useWorkspaceStore } from "./store/useWorkspaceStore";
 
 export function App() {
-  const { activePage, refresh } = useWorkspaceStore();
+  const { activePage, refresh, initProfileCloseListener } = useWorkspaceStore();
   const [isLocked, setLocked] = useState(() => getAppLockSettings().enabled);
   const [authUser, setAuthUser] = useState<AuthUser>();
   const [authReady, setAuthReady] = useState(false);
@@ -20,10 +20,14 @@ export function App() {
 
   useEffect(() => {
     if (!authUser) return;
+    const unsubscribeProfileClosed = initProfileCloseListener();
     void refresh();
     const interval = window.setInterval(() => void refresh(), 5000);
-    return () => window.clearInterval(interval);
-  }, [authUser, refresh]);
+    return () => {
+      window.clearInterval(interval);
+      unsubscribeProfileClosed();
+    };
+  }, [authUser, refresh, initProfileCloseListener]);
 
   const logout = async () => {
     await api.logout().catch(() => undefined);
@@ -31,6 +35,10 @@ export function App() {
     setRefreshToken();
     setAuthUser(undefined);
   };
+
+  useEffect(() => {
+    if (authUser && !canAccessPage(authUser.role, activePage as WorkspacePage)) useWorkspaceStore.getState().setActivePage("Dashboard");
+  }, [activePage, authUser]);
 
   const inviteToken = window.location.pathname.match(/\/invite\/([^/]+)/)?.[1];
   if (inviteToken) return <AcceptInvitationPage token={inviteToken} />;
@@ -41,16 +49,16 @@ export function App() {
   return (
     <Shell currentUser={authUser} onLogout={() => void logout()}>
       <div className="screen-enter">
-        {activePage === "Dashboard" && <Dashboard />}
-        {activePage === "Profiles" && <Profiles />}
-        {activePage === "RDP" && <RdpPage />}
+        {activePage === "Dashboard" && <Dashboard currentUser={authUser} />}
+        {activePage === "Profiles" && <Profiles currentUser={authUser} />}
+        {activePage === "RDP" && <RdpPage currentUser={authUser} />}
         {activePage === "Proxy Manager" && <ProxyManager />}
-        {activePage === "Fingerprints" && <Fingerprints />}
+        {activePage === "Fingerprints" && <Fingerprints currentUser={authUser} />}
         {activePage === "Groups" && <GroupsPage />}
         {activePage === "Team / Users" && <MembersPage currentUser={authUser} />}
-        {activePage === "Logs" && <Logs />}
+        {activePage === "Logs" && <Logs currentUser={authUser} />}
         {activePage === "Automation API" && <AutomationApi />}
-        {activePage === "Settings" && <Settings />}
+        {activePage === "Settings" && <Settings currentUser={authUser} />}
         {activePage === "Login Page" && <LoginPage />}
         {activePage === "Recovery" && <Recovery />}
       </div>
@@ -58,7 +66,7 @@ export function App() {
   );
 }
 
-function Dashboard() {
+function Dashboard({ currentUser }: { currentUser: AuthUser }) {
   const { dashboard, refresh } = useWorkspaceStore();
   const [browserStatus, setBrowserStatus] = useState<any>();
   const usage = dashboard?.usage ?? [];
@@ -66,7 +74,8 @@ function Dashboard() {
   const refreshDashboard = async () => {
     await Promise.all([refresh(), api.browserStatus().then(setBrowserStatus)]);
   };
-  useEffect(() => { void api.browserStatus().then(setBrowserStatus); }, []);
+  useEffect(() => { if (currentUser.role !== "client") void api.browserStatus().then(setBrowserStatus); }, [currentUser.role]);
+  if (currentUser.role === "client") return <ClientDashboard />;
   return (
     <section className="space-y-6">
       <div className="flex items-center justify-between">
@@ -129,7 +138,22 @@ function Dashboard() {
   );
 }
 
-function Profiles() {
+function ClientDashboard() {
+  const { profiles, launchProfile, stopProfile } = useWorkspaceStore();
+  const isDesktopApp = Boolean(window.profilex?.launchProfile);
+  return <section className="space-y-4">
+    <div><h1 className="text-2xl font-semibold">My profiles</h1><p className="text-sm text-gray-500">Only profiles assigned to you are shown here.</p></div>
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {profiles.map((profile) => <div key={profile.id} className="rounded-2xl border border-line bg-white p-4 dark:border-white/10 dark:bg-[#17191c]">
+        <div className="flex items-start justify-between gap-3"><div><div className="font-semibold">{profile.name}</div><div className="mt-1 text-xs text-gray-500">{profile.group}</div></div><span className="rounded-full bg-gray-100 px-2 py-1 text-xs dark:bg-white/10">{profile.status}</span></div>
+        <div className="mt-4">{profile.status === "running" ? <Button className="w-full" icon={<Square size={15} />} disabled={!isDesktopApp} title={!isDesktopApp ? "Available only in the desktop app" : undefined} onClick={() => void stopProfile(profile.id)}>Stop</Button> : <Button className="w-full" variant="primary" icon={<Play size={15} />} disabled={!isDesktopApp} title={!isDesktopApp ? "Available only in the desktop app" : undefined} onClick={() => void launchProfile(profile.id)}>Launch</Button>}</div>
+      </div>)}
+      {!profiles.length && <div className="text-sm text-gray-500">No profiles assigned yet.</div>}
+    </div>
+  </section>;
+}
+
+function Profiles({ currentUser }: { currentUser: AuthUser }) {
   const { profiles, proxies, createProfile, updateProfile, deleteProfile, launchProfile, stopProfile, cloneProfile } = useWorkspaceStore();
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [createStorageMode, setCreateStorageMode] = useState<BrowserProfile["storageMode"]>("device");
@@ -138,13 +162,18 @@ function Profiles() {
   const [editingNotesProfile, setEditingNotesProfile] = useState<BrowserProfile>();
   const [editingTagsProfile, setEditingTagsProfile] = useState<BrowserProfile>();
   const [compatibilityProfile, setCompatibilityProfile] = useState<BrowserProfile>();
+  const [assignmentProfile, setAssignmentProfile] = useState<BrowserProfile>();
+  const [workspaceUsers, setWorkspaceUsers] = useState<AuthUser[]>([]);
   const [compatibilityResult, setCompatibilityResult] = useState<ProfileCompatibilityCheck>();
   const [compatibilityLoading, setCompatibilityLoading] = useState(false);
   const [teamGroups, setTeamGroups] = useState<Array<{ value: string; label: string }>>([{ value: "Default", label: "Default" }]);
   const proxyById = useMemo(() => new Map(proxies.map((proxy) => [proxy.id, proxy])), [proxies]);
+  const isDesktopApp = Boolean(window.profilex?.launchProfile);
+  const canCreate = canCreateProfile(currentUser.role);
   useEffect(() => {
-    void api.team().then((team) => setTeamGroups(team.groups.map((group) => ({ value: group.name, label: group.name }))));
-  }, []);
+    void api.team().then((team) => setTeamGroups(team.groups.map((group) => ({ value: group.name, label: group.name })))).catch(() => undefined);
+    if (canEditProfile(currentUser.role)) void api.users().then(setWorkspaceUsers).catch(() => undefined);
+  }, [currentUser.role]);
   useEffect(() => {
     if (editingProfile && !profiles.some((profile) => profile.id === editingProfile.id)) {
       setEditingProfile(undefined);
@@ -154,10 +183,10 @@ function Profiles() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Profiles</h1>
-        <div className="flex gap-2">
+        {canCreate && <div className="flex gap-2">
           <Button icon={<Plus size={16} />} onClick={() => { setCreateStorageMode("device"); setCreateOpen(true); }}>New local profile</Button>
           <Button variant="primary" icon={<Plus size={16} />} onClick={() => { setCreateStorageMode("cloud"); setCreateOpen(true); }}>New cloud profile</Button>
-        </div>
+        </div>}
       </div>
       {isCreateOpen && (
         <ProfileEditorDialog
@@ -206,6 +235,9 @@ function Profiles() {
           }}
         />
       )}
+      {assignmentProfile && (
+        <ProfileAssignmentDialog profile={assignmentProfile} users={workspaceUsers} onClose={() => setAssignmentProfile(undefined)} onChanged={async () => { await useWorkspaceStore.getState().refresh(); setAssignmentProfile(useWorkspaceStore.getState().profiles.find((profile) => profile.id === assignmentProfile.id)); }} />
+      )}
       {compatibilityProfile && (
         <ProfileCompatibilityDialog
           profile={compatibilityProfile}
@@ -247,13 +279,13 @@ function Profiles() {
                 </td>
                 <td className="px-4 py-3">{profile.group}</td>
                 <td className="px-4 py-3">
-                  <button className="group flex max-w-[180px] items-center gap-2 text-left" onClick={() => setEditingNotesProfile(profile)}>
+                  <button className="group flex max-w-[180px] items-center gap-2 text-left disabled:cursor-not-allowed" disabled={!canEditProfile(currentUser.role, profile)} title={!canEditProfile(currentUser.role, profile) ? "You cannot edit this profile" : undefined} onClick={() => setEditingNotesProfile(profile)}>
                     <span className="truncate text-gray-500">{profile.notes || "-"}</span>
                     <Pencil size={13} className="shrink-0 text-gray-400 opacity-0 transition group-hover:opacity-100" />
                   </button>
                 </td>
                 <td className="px-4 py-3">
-                  <button className="group flex items-center gap-2 text-left" onClick={() => setEditingTagsProfile(profile)}>
+                  <button className="group flex items-center gap-2 text-left disabled:cursor-not-allowed" disabled={!canEditProfile(currentUser.role, profile)} title={!canEditProfile(currentUser.role, profile) ? "You cannot edit this profile" : undefined} onClick={() => setEditingTagsProfile(profile)}>
                     <span className="flex flex-wrap gap-1">
                       {profile.tags.length ? profile.tags.map((tag) => (
                         <span key={tag} className="rounded-lg bg-brand/10 px-2 py-1 text-xs text-brand">{tag}</span>
@@ -278,10 +310,12 @@ function Profiles() {
                 <td className="px-4 py-3">
                   <div className="flex justify-end gap-2">
                     {profile.status === "running" ? (
-                      <Button icon={<Square size={15} />} onClick={() => void stopProfile(profile.id)} />
+                      <Button icon={<Square size={15} />} disabled={!isDesktopApp || !canLaunchProfile(currentUser.role, profile)} title={!isDesktopApp ? "Available only in the desktop app" : !canLaunchProfile(currentUser.role, profile) ? "You cannot stop this profile" : undefined} onClick={() => void stopProfile(profile.id)} />
                     ) : (
                       <Button
                         icon={<Play size={15} />}
+                        disabled={!isDesktopApp || !canLaunchProfile(currentUser.role, profile)}
+                        title={!isDesktopApp ? "Available only in the desktop app" : !canLaunchProfile(currentUser.role, profile) ? "You cannot launch this profile" : undefined}
                         onClick={() =>
                           void launchProfile(profile.id).catch((error) => {
                             alert(error instanceof Error ? error.message : "Could not launch profile");
@@ -302,17 +336,18 @@ function Profiles() {
                           .finally(() => setCompatibilityLoading(false));
                       }}
                     />
-                    <Button icon={<Copy size={15} />} onClick={() => void cloneProfile(profile.id)} />
-                    <Button icon={<FolderKanban size={15} />} title="Clone to group" onClick={() => setCloningProfile(profile)} />
-                    <Button icon={<Pencil size={15} />} onClick={() => setEditingProfile(profile)} />
-                    <Button
+                    {canCreate && <Button icon={<Copy size={15} />} onClick={() => void cloneProfile(profile.id)} />}
+                    {canCreate && <Button icon={<FolderKanban size={15} />} title="Clone to group" onClick={() => setCloningProfile(profile)} />}
+                    {canEditProfile(currentUser.role, profile) && <Button icon={<Users size={15} />} title="Assigned users" onClick={() => setAssignmentProfile(profile)} />}
+                    {canEditProfile(currentUser.role, profile) && <Button icon={<Pencil size={15} />} onClick={() => setEditingProfile(profile)} />}
+                    {canDeleteProfile(currentUser.role, profile) && <Button
                       icon={<Trash2 size={15} />}
                       onClick={() => {
                         if (confirm(`Delete profile "${profile.name}"? This cannot be undone.`)) {
                           void deleteProfile(profile.id);
                         }
                       }}
-                    />
+                    />}
                   </div>
                 </td>
               </tr>
@@ -324,6 +359,14 @@ function Profiles() {
   );
 }
 
+
+function ProfileAssignmentDialog({ profile, users, onClose, onChanged }: { profile: BrowserProfile; users: AuthUser[]; onClose: () => void; onChanged: () => Promise<void> }) {
+  const assignedIds = new Set(profile.assignedUsers?.map((user) => user.id) ?? []);
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6 backdrop-blur-sm"><div className="w-full max-w-lg rounded-2xl border border-line bg-white p-5 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
+    <div className="flex items-center justify-between"><div><div className="text-lg font-semibold">Assigned users</div><div className="text-sm text-gray-500">{profile.name}</div></div><button onClick={onClose}><X size={18} /></button></div>
+    <div className="mt-4 space-y-2">{users.map((user) => <div key={user.id} className="flex items-center justify-between rounded-xl bg-gray-50 p-3 text-sm dark:bg-[#202328]"><div><div className="font-medium">{user.name}</div><div className="text-xs text-gray-500">{user.email}</div></div>{assignedIds.has(user.id) ? <Button onClick={() => void api.unassignProfile(profile.id, user.id).then(onChanged)}>Remove</Button> : <Button variant="primary" onClick={() => void api.assignProfile(profile.id, user.id).then(onChanged)}>Assign</Button>}</div>)}</div>
+  </div></div>;
+}
 
 function ProfileCompatibilityDialog({ profile, result, loading, onClose, onResult }: { profile: BrowserProfile; result?: ProfileCompatibilityCheck; loading: boolean; onClose: () => void; onResult: (result: ProfileCompatibilityCheck) => void }) {
   return (
@@ -832,11 +875,13 @@ function splitList(value: string) {
 }
 
 
-function RdpPage() {
+function RdpPage({ currentUser }: { currentUser: AuthUser }) {
   const [connections, setConnections] = useState<RdpConnection[]>([]);
   const [editing, setEditing] = useState<RdpConnection>();
   const [isDialogOpen, setDialogOpen] = useState(false);
   const [status, setStatus] = useState<string>();
+  const isDesktopApp = Boolean(window.profilex);
+  const canManage = canManageRdp(currentUser.role);
 
   const refreshRdp = async () => setConnections(await api.rdpConnections());
   useEffect(() => { void refreshRdp(); }, []);
@@ -858,7 +903,7 @@ function RdpPage() {
           <h1 className="text-2xl font-semibold">RDP</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">Manage and launch remote desktop connections.</p>
         </div>
-        <Button variant="primary" icon={<Plus size={16} />} onClick={() => { setEditing(undefined); setDialogOpen(true); }}>Add RDP</Button>
+        {canManage && <Button variant="primary" icon={<Plus size={16} />} onClick={() => { setEditing(undefined); setDialogOpen(true); }}>Add RDP</Button>}
       </div>
       {status && <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{status}</div>}
       <Panel title="Remote desktops">
@@ -877,9 +922,9 @@ function RdpPage() {
                   <td className="px-3 py-2">{connection.lastLaunchedAt ? new Date(connection.lastLaunchedAt).toLocaleString() : "-"}</td>
                   <td className="px-3 py-2">
                     <div className="flex justify-end gap-2">
-                      <Button onClick={() => void launch(connection)} icon={<Play size={15} />}>Open</Button>
-                      <Button onClick={() => { setEditing(connection); setDialogOpen(true); }} icon={<Pencil size={15} />} />
-                      <Button onClick={() => void api.deleteRdpConnection(connection.id).then(refreshRdp)} icon={<Trash2 size={15} />} />
+                      <Button disabled={!isDesktopApp} title={!isDesktopApp ? "Available only in the desktop app" : undefined} onClick={() => void launch(connection)} icon={<Play size={15} />}>Open</Button>
+                      {canManage && <Button onClick={() => { setEditing(connection); setDialogOpen(true); }} icon={<Pencil size={15} />} />}
+                      {canManage && <Button onClick={() => void api.deleteRdpConnection(connection.id).then(refreshRdp)} icon={<Trash2 size={15} />} />}
                     </div>
                   </td>
                 </tr>
@@ -1008,9 +1053,7 @@ function ProxyManager() {
   const deleteSelectedProxies = async () => {
     if (!selectedProxyIds.length) return;
     if (!confirm(`Delete ${selectedProxyIds.length} selected proxies? Profiles using them will switch to Direct connection.`)) return;
-    for (const id of selectedProxyIds) {
-      await deleteProxy(id);
-    }
+    await api.deleteProxiesBulk(selectedProxyIds);
     setSelectedProxyIds([]);
   };
   useEffect(() => {
@@ -1114,18 +1157,20 @@ function ProxyManager() {
 
   const importSelectedPreview = async () => {
     const selected = importPreview.filter((candidate) => candidate.selected);
-    for (const candidate of selected) {
-      await createProxy({
-        name: candidate.name,
-        protocol: candidate.protocol,
-        host: candidate.host,
-        port: candidate.port,
-        username: candidate.username,
-        password: candidate.password,
-        country: candidate.country,
-        countryCode: candidate.countryCode
-      });
-    }
+    await api.createProxiesBulk(
+	  selected.map((candidate) => ({
+		name: candidate.name,
+		protocol: candidate.protocol,
+		host: candidate.host,
+		port: candidate.port,
+		username: candidate.username,
+		password: candidate.password,
+		country: candidate.country,
+		countryCode: candidate.countryCode
+	  }))
+	);
+
+	await refresh();
     setImportPreview([]);
   };
 
@@ -1590,12 +1635,13 @@ function countryName(code: string) {
   return countries[code] ?? code;
 }
 
-function Fingerprints() {
+function Fingerprints({ currentUser }: { currentUser: AuthUser }) {
   const { profiles, updateProfile } = useWorkspaceStore();
   const [preset, setPreset] = useState<FingerprintSettings>();
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [applyMessage, setApplyMessage] = useState<string>();
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId);
+  const canManage = canManageFingerprints(currentUser.role);
 
   useEffect(() => {
     if (!selectedProfileId && profiles[0]) {
@@ -1619,7 +1665,7 @@ function Fingerprints() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Fingerprints</h1>
-        <Button variant="primary" icon={<RefreshCcw size={16} />} onClick={() => void generatePreset()}>Generate preset</Button>
+        {canManage && <Button variant="primary" icon={<RefreshCcw size={16} />} onClick={() => void generatePreset()}>Generate preset</Button>}
       </div>
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4">
         <Panel title="Settings">
@@ -1646,7 +1692,7 @@ function Fingerprints() {
             }}
             options={profiles.length ? profiles.map((profile) => ({ value: profile.id, label: profile.name })) : [{ value: "", label: "No profiles available" }]}
           />
-          <Button variant="primary" icon={<Plus size={16} />} disabled={!preset || !selectedProfile} onClick={() => void applyPreset()}>
+          <Button variant="primary" icon={<Plus size={16} />} disabled={!canManage || !preset || !selectedProfile} title={!canManage ? "Read-only access" : undefined} onClick={() => void applyPreset()}>
             Apply to profile
           </Button>
         </div>
@@ -1841,45 +1887,67 @@ function InviteStatus({ invite }: { invite: { url: string; email: string; result
 function MembersPage({ currentUser }: { currentUser: AuthUser }) {
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
-  const [form, setForm] = useState({ email: "", role: "member" as Role });
+  const availableInviteRoles = (["owner", "admin", "manager", "member", "client"] as Role[]).filter((role) => canInviteRole(currentUser.role, role));
+  const [form, setForm] = useState({ email: "", role: (availableInviteRoles[0] ?? "member") as Role });
   const [lastInvite, setLastInvite] = useState<string>();
-  const canManage = currentUser.role === "owner" || currentUser.role === "admin";
+  const canManage = canManageUsers(currentUser.role);
   const load = async () => {
     if (!canManage) return;
     const [nextUsers, nextInvites] = await Promise.all([api.users(), api.invitations()]);
-    setUsers(nextUsers); setInvitations(nextInvites);
+    setUsers(nextUsers);
+    setInvitations(nextInvites);
   };
   useEffect(() => { void load(); }, [canManage]);
   const invite = async () => {
     const next = await api.createInvitation(form);
     setLastInvite(next.inviteUrl);
-    setForm({ email: "", role: "member" });
+    setForm({ email: "", role: (availableInviteRoles[0] ?? "member") as Role });
     await load();
   };
   if (!canManage) return <Panel title="Team / Users"><div className="text-sm text-gray-500">You do not have permission to manage users.</div></Panel>;
   return <section className="space-y-4">
     <Panel title="Invite user">
       <div className="grid grid-cols-[1fr_180px_auto] items-end gap-3">
-        <TextInput label="Email" value={form.email} onChange={(email) => setForm((v) => ({ ...v, email }))} />
-        <SelectInput label="Role" value={form.role} onChange={(role) => setForm((v) => ({ ...v, role: role as Role }))} options={["owner","admin","manager","member","client"].map((value) => ({ value, label: value }))} />
-        <Button variant="primary" onClick={() => void invite()}>Invite user</Button>
+        <TextInput label="Email" value={form.email} onChange={(email) => setForm((value) => ({ ...value, email }))} />
+        <SelectInput label="Role" value={form.role} onChange={(role) => setForm((value) => ({ ...value, role: role as Role }))} options={availableInviteRoles.map((value) => ({ value, label: value }))} />
+        <Button variant="primary" disabled={!availableInviteRoles.length} onClick={() => void invite()}>Invite user</Button>
       </div>
       {lastInvite && <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">Invite link: <code>{lastInvite}</code></div>}
     </Panel>
     <Panel title="Users">
-      <div className="space-y-2">{users.map((user) => <div key={user.id} className="grid grid-cols-[1fr_160px_150px_160px_auto] items-center gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
-        <div><div className="font-medium">{user.name}</div><div className="text-xs text-gray-500">{user.email}</div></div>
-        <SelectInput label="" value={user.role} onChange={(role) => void api.updateUser(user.id,{ role: role as Role }).then(load)} options={["owner","admin","manager","member","client"].map((value) => ({ value, label: value }))} />
-        <span>{user.status ?? "active"}</span><span className="text-xs text-gray-500">{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : "Never"}</span>
-        <Button icon={<Trash2 size={15} />} onClick={() => void api.deleteUser(user.id).then(load)}>Delete</Button>
-      </div>)}</div>
+      <div className="space-y-2">{users.map((user) => {
+        const roleOptions = (["owner", "admin", "manager", "member", "client"] as Role[]).filter((role) => role === user.role || canChangeRole(currentUser.role, role));
+        const roleLocked = user.role === "owner" && currentUser.role !== "owner";
+        const deletable = canDeleteUser(currentUser.role, user.role);
+        return <div key={user.id} className="grid grid-cols-[1fr_190px_150px_160px_auto] items-center gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
+          <div><div className="font-medium">{user.name}</div><div className="text-xs text-gray-500">{user.email}</div></div>
+          <div>
+            <RoleBadge role={user.role} />
+            <div className="mt-1 text-xs text-gray-500">{roleDescriptions[user.role]}</div>
+          </div>
+          {roleLocked ? <span className="text-xs text-gray-500">Owner role locked</span> : <SelectInput label="" value={user.role} onChange={(role) => void api.updateUser(user.id, { role: role as Role }).then(load)} options={roleOptions.map((value) => ({ value, label: value }))} />}
+          <div><div>{user.status ?? "active"}</div><div className="text-xs text-gray-500">{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : "Never"}</div></div>
+          <Button icon={<Trash2 size={15} />} disabled={!deletable} title={!deletable ? "You cannot delete this user" : undefined} onClick={() => void api.deleteUser(user.id).then(load)}>Delete</Button>
+        </div>;
+      })}</div>
     </Panel>
     <Panel title="Pending invitations">
-      <div className="space-y-2">{invitations.filter((i) => i.status === "pending").map((invite) => <div key={invite.id} className="grid grid-cols-[1fr_120px_180px_auto] items-center gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
-        <div>{invite.email}</div><div>{invite.role}</div><div className="text-xs text-gray-500">Expires {new Date(invite.expiresAt).toLocaleDateString()}</div><div className="flex gap-2"><Button onClick={() => void api.resendInvitation(invite.id).then((next) => { setLastInvite(next.inviteUrl); return load(); })}>Resend</Button><Button onClick={() => void api.revokeInvitation(invite.id).then(load)}>Revoke</Button></div>
+      <div className="space-y-2">{invitations.filter((invite) => invite.status === "pending").map((invite) => <div key={invite.id} className="grid grid-cols-[1fr_160px_180px_auto] items-center gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
+        <div>{invite.email}</div><div><RoleBadge role={invite.role} /></div><div className="text-xs text-gray-500">Expires {new Date(invite.expiresAt).toLocaleDateString()}</div><div className="flex gap-2"><Button onClick={() => void api.resendInvitation(invite.id).then((next) => { setLastInvite(next.inviteUrl); return load(); })}>Resend</Button><Button onClick={() => void api.revokeInvitation(invite.id).then(load)}>Revoke</Button></div>
       </div>)}</div>
     </Panel>
   </section>;
+}
+
+function RoleBadge({ role }: { role: Role }) {
+  const classes = {
+    owner: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-200",
+    admin: "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-200",
+    manager: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200",
+    member: "bg-gray-200 text-gray-700 dark:bg-white/10 dark:text-gray-200",
+    client: "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-300"
+  }[role];
+  return <span title={roleDescriptions[role]} className={`inline-flex items-center rounded-full border border-current/10 px-2.5 py-1 text-xs font-semibold shadow-sm ${classes}`}>{role}</span>;
 }
 
 function AcceptInvitationPage({ token }: { token: string }) {
@@ -1887,25 +1955,25 @@ function AcceptInvitationPage({ token }: { token: string }) {
   return <div className="flex min-h-screen items-center justify-center bg-panel p-6 dark:bg-[#111315]"><div className="w-full max-w-md rounded-2xl border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]"><h1 className="text-xl font-semibold">Accept invitation</h1><div className="mt-4 space-y-3"><input className="h-10 w-full rounded-lg border border-line bg-transparent px-3" placeholder="Name" value={name} onChange={(e)=>setName(e.target.value)} /><input className="h-10 w-full rounded-lg border border-line bg-transparent px-3" placeholder="Password" type="password" value={password} onChange={(e)=>setPassword(e.target.value)} /><Button variant="primary" className="w-full justify-center" onClick={()=>void api.acceptInvitation(token,{name,password}).then(()=>setMessage("Invitation accepted. You can sign in now.")).catch((e)=>setMessage(normalizeApiError(e)))}>Accept invitation</Button>{message&&<div className="text-sm text-gray-500">{message}</div>}</div></div></div>;
 }
 
-function Logs() {
+function Logs({ currentUser }: { currentUser: AuthUser }) {
   const [logs, setLogs] = useState<any[]>([]);
-  useEffect(() => { void api.logs().then(setLogs); }, []);
+  const [filters, setFilters] = useState({ user: "", action: "", role: "", date: "" });
+  const load = () => api.logs(filters).then(setLogs);
+  useEffect(() => { void load(); }, []);
+  const actions = ["login", "profile.launched", "profile.stopped", "user.role_changed", "invite.sent", "user.removed", "profile.deleted", "access.denied"];
   return (
-    <Panel title="Activity Logs">
-      <div className="mb-4 flex justify-end">
-        <Button onClick={() => {
-          if (confirm("Clear all activity logs?")) void api.clearLogs().then(() => setLogs([]));
-        }}>Clear logs</Button>
+    <Panel title="Audit Logs">
+      <div className="mb-4 grid gap-3 md:grid-cols-[1fr_180px_140px_170px_auto]">
+        <TextInput label="User" value={filters.user} onChange={(user) => setFilters((value) => ({ ...value, user }))} />
+        <SelectInput label="Action" value={filters.action} onChange={(action) => setFilters((value) => ({ ...value, action }))} options={[{ value: "", label: "All actions" }, ...actions.map((value) => ({ value, label: value }))]} />
+        <SelectInput label="Role" value={filters.role} onChange={(role) => setFilters((value) => ({ ...value, role }))} options={[{ value: "", label: "All roles" }, ...(["owner", "admin", "manager", "member", "client"] as Role[]).map((value) => ({ value, label: value }))]} />
+        <TextInput label="Date" type="date" value={filters.date} onChange={(date) => setFilters((value) => ({ ...value, date }))} />
+        <Button className="self-end" onClick={() => void load()}>Apply</Button>
       </div>
-      <div className="space-y-2">
-        {logs.map((log) => (
-          <div key={log.id} className="grid grid-cols-[160px_1fr_1fr] rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
-            <span className="text-gray-500">{new Date(log.created_at).toLocaleString()}</span>
-            <span>{log.action}</span>
-            <span>{log.target}</span>
-          </div>
-        ))}
-      </div>
+      {canClearLogs(currentUser.role) && <div className="mb-4 flex justify-end"><Button onClick={() => { if (confirm("Clear all activity logs?")) void api.clearLogs().then(() => setLogs([])); }}>Clear logs</Button></div>}
+      <div className="space-y-2">{logs.map((log) => <div key={log.id} className="grid grid-cols-[170px_1fr_170px_120px_1fr] gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
+        <span className="text-gray-500">{new Date(log.created_at).toLocaleString()}</span><span>{log.actor_name || log.actor_email || "System"}</span><span>{log.action}</span><span>{log.actor_role ? <RoleBadge role={log.actor_role} /> : "-"}</span><span className="truncate">{log.target}</span>
+      </div>)}</div>
     </Panel>
   );
 }
@@ -1939,7 +2007,7 @@ function AutomationApi() {
   );
 }
 
-function Settings() {
+function Settings({ currentUser }: { currentUser: AuthUser }) {
   const [theme, setTheme] = useState<ThemeMode>(() => getInitialTheme());
   const [smtp, setSmtp] = useState<SmtpSettings>({
     enabled: false,
@@ -1965,17 +2033,19 @@ function Settings() {
   const [operations, setOperations] = useState<OperationsSettings>(() => getOperationsSettings());
 
   useEffect(() => {
-    void api.smtpSettings().then(setSmtp);
-    void api.proxylineSettings().then((settings) => {
-      setProxyline(settings);
-      setProxylineAccountName(settings.accountName ?? "");
-    });
+    if (currentUser.role === "owner") {
+      void api.smtpSettings().then(setSmtp);
+      void api.proxylineSettings().then((settings) => {
+        setProxyline(settings);
+        setProxylineAccountName(settings.accountName ?? "");
+      });
+    }
     if (!window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
       setBiometricAvailable(false);
       return;
     }
     void window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(setBiometricAvailable).catch(() => setBiometricAvailable(false));
-  }, []);
+  }, [currentUser.role]);
 
   const changeTheme = (nextTheme: ThemeMode) => {
     setTheme(nextTheme);
@@ -2076,7 +2146,7 @@ function Settings() {
         </div>
         <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">Theme preference is saved locally for this app.</div>
       </Panel>
-      <Panel title="SMTP invites">
+      {currentUser.role === "owner" && <Panel title="SMTP invites">
         <div className="grid gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <CheckboxInput label="Enable email invites" checked={smtp.enabled} onChange={(value) => updateSmtpForm("enabled", value)} />
@@ -2106,8 +2176,8 @@ function Settings() {
           </div>
         </div>
         {smtpStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{smtpStatus}</div>}
-      </Panel>
-      <Panel title="Proxyline integration">
+      </Panel>}
+      {currentUser.role === "owner" && <Panel title="Proxyline integration">
         <div className="space-y-3">
           <div className="rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
             <div className="text-xs text-gray-500">Connected accounts</div>
@@ -2139,7 +2209,7 @@ function Settings() {
           </div>
         </div>
         {proxylineStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{proxylineStatus}</div>}
-      </Panel>
+      </Panel>}
       <Panel title="App lock">
         <div className="space-y-3">
           <SecurityMethodCard

@@ -1,7 +1,7 @@
 import { clsx } from "clsx";
 import { Activity, Bot, Fingerprint, FolderKanban, Gauge, KeyRound, ListChecks, MonitorCog, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserPlus, MonitorPlay } from "lucide-react";
 import { useState } from "react";
-import type { AuthUser } from "@profilex/shared";
+import { canAccessPage, type AuthUser, type WorkspacePage } from "@profilex/shared";
 import { useWorkspaceStore } from "../store/useWorkspaceStore";
 
 const items = [
@@ -49,7 +49,7 @@ export function Shell({ children, currentUser, onLogout }: { children: React.Rea
             {!isCollapsed && <div className="text-sm text-gray-500 dark:text-gray-400">Browser profiles</div>}
           </div>
           <nav className="space-y-1">
-            {items.map(([label, Icon]) => (
+            {items.filter(([label]) => canAccessPage(currentUser.role, label as WorkspacePage)).map(([label, Icon]) => (
               <button
                 key={label}
                 onClick={() => setActivePage(label)}

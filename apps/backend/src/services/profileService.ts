@@ -16,10 +16,14 @@ function mapProfile(row: ProfileRow): BrowserProfile {
     fingerprint: row.fingerprint ?? {}, startupUrls: row.startup_urls ?? [], extensions: row.extensions ?? [],
     status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
     lastLaunchedAt: row.last_launched_at ?? undefined, version: row.version, lastSyncAt: row.last_sync_at ?? undefined,
-    lockedByUserId: row.locked_by_user_id ?? undefined, lockedAt: row.locked_at ?? undefined
+    lockedByUserId: row.locked_by_user_id ?? undefined, lockedAt: row.locked_at ?? undefined,
+    assignedUsers: row.assigned_users ?? []
   };
 }
-const profileSelect = `SELECT p.*, g.name AS profile_group_name, l.user_id AS locked_by_user_id, l.acquired_at AS locked_at
+const profileSelect = `SELECT p.*, g.name AS profile_group_name, l.user_id AS locked_by_user_id, l.acquired_at AS locked_at,
+  COALESCE((SELECT json_agg(json_build_object('id',u.id,'name',u.name,'email',u.email,'role',om.role) ORDER BY u.name)
+    FROM profile_assignments pa JOIN users u ON u.id=pa.user_id LEFT JOIN organization_members om ON om.user_id=u.id AND om.organization_id=p.organization_id
+    WHERE pa.profile_id=p.id), '[]'::json) AS assigned_users
   FROM profiles p LEFT JOIN profile_groups g ON g.id = p.profile_group_id LEFT JOIN profile_locks l ON l.profile_id = p.id`;
 export async function listProfiles(db: AppDatabase, organizationId?: string) { return (await db.query(`${profileSelect} ${organizationId ? "WHERE p.organization_id=$1" : ""} ORDER BY p.created_at ASC`, organizationId ? [organizationId] : [])).map(mapProfile); }
 export async function listProfilesForUser(db: AppDatabase, user: AuthUser) {
@@ -50,7 +54,8 @@ export async function updateProfile(db: AppDatabase, id: string, patch: Partial<
 }
 export async function cloneProfile(db: AppDatabase, id: string, actorId?: string) { const profile = await getProfile(db, id); return profile ? createProfile(db, { ...profile, name: `${profile.name} Copy` }, actorId) : undefined; }
 export async function deleteProfile(db: AppDatabase, id: string, actorId?: string) { const profile = await getProfile(db, id); await db.exec("DELETE FROM profiles WHERE id=$1", [id]); if (profile) await logActivity(db, "profile.deleted", profile.name, actorId); return Boolean(profile); }
-export async function assignProfileToUser(db: AppDatabase, profileId: string, userId: string) { if (!(await getProfile(db, profileId)) || !(await db.one("SELECT id FROM users WHERE id=$1", [userId]))) return undefined; await db.exec("INSERT INTO profile_assignments (profile_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [profileId, userId]); return { profileId, userId }; }
+export async function assignProfileToUser(db: AppDatabase, profileId: string, userId: string, organizationId?: string) { const profile=await getProfile(db, profileId, organizationId); const user=organizationId ? await db.one("SELECT 1 FROM organization_members WHERE organization_id=$1 AND user_id=$2", [organizationId,userId]) : await db.one("SELECT id FROM users WHERE id=$1", [userId]); if (!profile || !user) return undefined; await db.exec("INSERT INTO profile_assignments (profile_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [profileId, userId]); return { profileId, userId }; }
+export async function unassignProfileFromUser(db: AppDatabase, profileId: string, userId: string, organizationId?: string) { if (!(await getProfile(db, profileId, organizationId))) return false; await db.exec("DELETE FROM profile_assignments WHERE profile_id=$1 AND user_id=$2", [profileId,userId]); return true; }
 export async function syncProfileState(db: AppDatabase, profileId: string, payload: ProfileSyncPayload, actorId?: string) {
   return db.transaction(async (tx) => {
     const profile = await getProfile(tx, profileId); if (!profile) return undefined;

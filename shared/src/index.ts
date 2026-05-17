@@ -104,6 +104,7 @@ export interface BrowserProfile {
   lastSyncAt?: string;
   lockedByUserId?: string;
   lockedAt?: string;
+  assignedUsers?: Array<Pick<AuthUser, "id" | "name" | "email" | "role">>;
 }
 
 export interface Workspace {
@@ -228,3 +229,68 @@ export interface LaunchProfileRequest {
 export interface ApiEnvelope<T> {
   data: T;
 }
+
+
+export type WorkspacePage =
+  | "Dashboard"
+  | "Profiles"
+  | "RDP"
+  | "Proxy Manager"
+  | "Fingerprints"
+  | "Groups"
+  | "Team / Users"
+  | "Logs"
+  | "Automation API"
+  | "Settings"
+  | "Login Page"
+  | "Recovery";
+
+export const roleDescriptions: Record<Role, string> = {
+  owner: "Full workspace ownership and role management.",
+  admin: "Workspace administration without owner control.",
+  manager: "Operational management of assigned workspace objects.",
+  member: "Works only with assigned browser profiles.",
+  client: "Limited access to assigned profiles only."
+};
+
+const pageAccess: Record<Role, WorkspacePage[]> = {
+  owner: ["Dashboard", "Profiles", "RDP", "Proxy Manager", "Fingerprints", "Groups", "Team / Users", "Logs", "Automation API", "Settings", "Recovery"],
+  admin: ["Dashboard", "Profiles", "RDP", "Proxy Manager", "Fingerprints", "Groups", "Team / Users", "Logs", "Automation API", "Settings", "Recovery"],
+  manager: ["Dashboard", "Profiles", "RDP", "Proxy Manager", "Fingerprints", "Groups", "Team / Users", "Logs"],
+  member: ["Dashboard", "Profiles"],
+  client: ["Dashboard", "Profiles"]
+};
+
+export function canAccessPage(role: Role, page: WorkspacePage) {
+  return pageAccess[role].includes(page);
+}
+export function canManageUsers(role: Role) {
+  return role === "owner" || role === "admin" || role === "manager";
+}
+export function canInviteRole(currentRole: Role, targetRole: Role) {
+  if (currentRole === "owner") return true;
+  if (currentRole === "admin") return ["manager", "member", "client"].includes(targetRole);
+  if (currentRole === "manager") return ["member", "client"].includes(targetRole);
+  return false;
+}
+export function canChangeRole(currentRole: Role, targetRole: Role) {
+  return canInviteRole(currentRole, targetRole);
+}
+export function canDeleteUser(currentRole: Role, targetUserRole: Role) {
+  if (currentRole === "owner") return true;
+  if (currentRole === "admin") return ["manager", "member", "client"].includes(targetUserRole);
+  if (currentRole === "manager") return ["member", "client"].includes(targetUserRole);
+  return false;
+}
+export function canCreateProfile(role: Role) { return ["owner", "admin", "manager"].includes(role); }
+export function canEditProfile(role: Role, _profile?: BrowserProfile) { return ["owner", "admin", "manager"].includes(role); }
+export function canDeleteProfile(role: Role, _profile?: BrowserProfile) { return ["owner", "admin"].includes(role); }
+export function canLaunchProfile(role: Role, _profile?: BrowserProfile) { return ["owner", "admin", "manager", "member", "client"].includes(role); }
+export function canManageProxy(role: Role) { return ["owner", "admin", "manager"].includes(role); }
+export function canManageFingerprints(role: Role) { return ["owner", "admin"].includes(role); }
+export function canAccessAutomationApi(role: Role) { return role === "owner"; }
+export function canAccessSettings(role: Role) { return ["owner", "admin"].includes(role); }
+export function canAccessRecovery(role: Role) { return role === "owner"; }
+export function canManageGroups(role: Role) { return ["owner", "admin", "manager"].includes(role); }
+export function canManageRdp(role: Role) { return ["owner", "admin", "manager"].includes(role); }
+export function canClearLogs(role: Role) { return ["owner", "admin"].includes(role); }

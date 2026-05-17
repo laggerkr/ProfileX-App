@@ -37,7 +37,12 @@ function toPublicProxy(proxy: ProxySettings): ProxySettings {
 }
 
 export async function listProxies(db: AppDatabase, organizationId?: string) {
-  return (await db.query(`SELECT * FROM proxies ${organizationId ? "WHERE organization_id=$1" : ""} ORDER BY name ASC`, organizationId ? [organizationId] : [])).map((row) => mapProxy(row, { includePassword: true }));
+  const rows = await db.query(
+    `SELECT * FROM proxies ${organizationId ? "WHERE organization_id=$1" : ""} ORDER BY name ASC`,
+    organizationId ? [organizationId] : []
+  );
+
+  return rows.map((row) => mapProxy(row, { includePassword: true }));
 }
 
 export async function getProxy(db: AppDatabase, id?: string) {
@@ -51,7 +56,10 @@ export async function createProxy(db: AppDatabase, input: Omit<ProxySettings, "i
     throw new Error("Proxy host and port are required");
   }
   const protocol = normalizeProxyProtocol(input.protocol);
-  const existing = await db.one<{ id: string }>("SELECT id FROM proxies WHERE host = $1 AND COALESCE(username, '') = $2", [input.host, input.username ?? ""]);
+  const existing = await db.one<{ id: string }>(
+  "SELECT id FROM proxies WHERE organization_id = $1 AND host = $2 AND COALESCE(username, '') = $3",
+  [organizationId, input.host, input.username ?? ""]
+);
   if (existing) {
     const current = await getProxy(db, existing.id);
     if (current) {
@@ -206,7 +214,11 @@ async function checkHttpProxyTunnel(proxy: ProxySettings) {
   });
 }
 
-export async function importProxyLines(db: AppDatabase, text: string) {
+export async function importProxyLines(
+  db: AppDatabase,
+  text: string,
+  organizationId: string
+) {
   const blocks = text
     .split(/\n\s*\n/)
     .map((block) => block.trim())
@@ -216,13 +228,13 @@ export async function importProxyLines(db: AppDatabase, text: string) {
   for (const block of blocks.length ? blocks : [text]) {
     const structured = parseStructuredProxyBlock(block);
     if (structured) {
-      imported.push(...(await Promise.all(structured.map((proxy) => createProxyIfMissing(db, proxy)))).filter(Boolean) as ProxySettings[]);
+      imported.push(...(await Promise.all(structured.map((proxy) => createProxyIfMissing(db, proxy, organizationId)))).filter(Boolean) as ProxySettings[]);
       continue;
     }
 
     for (const line of block.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
       const parsed = parseProxyLine(line);
-      const created = parsed ? await createProxyIfMissing(db, parsed) : undefined;
+      const created = parsed ? await createProxyIfMissing(db, parsed, organizationId) : undefined;
       if (created) imported.push(created);
     }
   }
@@ -230,9 +242,16 @@ export async function importProxyLines(db: AppDatabase, text: string) {
   return imported;
 }
 
-async function createProxyIfMissing(db: AppDatabase, input: Omit<ProxySettings, "id" | "status">) {
-  const existing = await db.one<{ id: string }>("SELECT id FROM proxies WHERE host = $1 AND COALESCE(username, '') = $2", [input.host, input.username ?? ""]);
-  if (!existing) return createProxy(db, input);
+async function createProxyIfMissing(
+  db: AppDatabase,
+  input: Omit<ProxySettings, "id" | "status">,
+  organizationId: string
+) {
+  const existing = await db.one<{ id: string }>(
+  "SELECT id FROM proxies WHERE organization_id = $1 AND host = $2 AND COALESCE(username, '') = $3",
+  [organizationId, input.host, input.username ?? ""]
+);
+  if (!existing) return createProxy(db, input, organizationId);
   const current = await getProxy(db, existing.id);
   if (!current) return undefined;
   await updateProxy(db, existing.id, {

@@ -22,12 +22,17 @@ type ProxylineProxy = {
   tags?: unknown;
 };
 
-export async function importProxylineProxies(db: AppDatabase) {
+export async function importProxylineProxies(db: AppDatabase, organizationId: string) {
   const settings = await getProxylineSettings(db, { includeApiKey: true });
-  if (!settings.apiKey) throw new Error("Proxyline API key is not configured");
+  if (!settings.apiKey) {
+  return {
+    success: false,
+    error: "Proxyline API key is not configured"
+  };
+}
 
   const items = await fetchProxylineList(settings.apiKey);
-  const existing = await listProxies(db);
+  const existing = await listProxies(db, organizationId);
   const imported: ProxySettings[] = [];
   let updatedCount = 0;
 
@@ -42,7 +47,7 @@ export async function importProxylineProxies(db: AppDatabase) {
         }
         continue;
       }
-      imported.push(await createProxy(db, candidate));
+      imported.push(await createProxy(db, candidate, organizationId));
     }
   }
 

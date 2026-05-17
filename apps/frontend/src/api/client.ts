@@ -55,6 +55,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: {
         "content-type": "application/json",
+        "x-profilex-client": window.profilex ? "electron" : "web",
         ...(getAuthToken() ? { authorization: `Bearer ${getAuthToken()}` } : {}),
         ...init?.headers
       }
@@ -95,6 +96,7 @@ export const api = {
   updateProfile: (id: string, profile: Partial<BrowserProfile>) => request<BrowserProfile>(`/profiles/${id}`, { method: "PATCH", body: JSON.stringify(profile) }),
   deleteProfile: (id: string) => request<{ deleted: boolean }>(`/profiles/${id}`, { method: "DELETE" }),
   assignProfile: (id: string, userId: string) => request<{ profileId: string; userId: string }>(`/profiles/${id}/assign`, { method: "POST", body: JSON.stringify({ userId }) }),
+  unassignProfile: (id: string, userId: string) => request<{ deleted: boolean }>(`/profiles/${id}/assign/${userId}`, { method: "DELETE" }),
   profileState: (id: string) => request<ProfileSyncPayload>(`/profiles/${id}/state`),
   syncProfile: (id: string, payload: unknown) => request<{ profileId: string; syncedAt: string; version: number }>(`/profiles/${id}/sync`, { method: "POST", body: JSON.stringify(payload) }),
   lockProfile: (id: string) => request<{ acquired: boolean; sessionId?: string }>(`/profiles/${id}/lock`, { method: "POST", body: JSON.stringify({}) }),
@@ -115,8 +117,10 @@ export const api = {
   launchRdpConnection: (id: string) => request<RdpConnection>(`/rdp/${id}/launch`, { method: "POST" }),
   proxies: () => request<ProxySettings[]>("/proxies"),
   createProxy: (proxy: Omit<ProxySettings, "id" | "status">) => request<ProxySettings>("/proxies", { method: "POST", body: JSON.stringify(proxy) }),
+  createProxiesBulk: (items: Array<Omit<ProxySettings, "id" | "status">>) =>  request("/proxies/bulk", {    method: "POST",    body: JSON.stringify({ items })  }),
   updateProxy: (id: string, proxy: Partial<ProxySettings>) => request<ProxySettings>(`/proxies/${id}`, { method: "PATCH", body: JSON.stringify(proxy) }),
   deleteProxy: (id: string) => request<{ deleted: boolean }>(`/proxies/${id}`, { method: "DELETE" }),
+  deleteProxiesBulk: (ids: string[]) =>  request("/proxies/bulk", {    method: "DELETE",    body: JSON.stringify({ ids })  }),
   importProxies: (text: string) => request<ProxySettings[]>("/proxies/import", { method: "POST", body: JSON.stringify({ text }) }),
   importProxylineProxies: () => request<{ imported: ProxySettings[]; importedCount: number; updatedCount: number }>("/proxies/import/proxyline", { method: "POST" }),
   checkAllProxies: () => request<{ checked: Array<ProxySettings | undefined>; checkedCount: number }>("/proxies/check-all", { method: "POST" }),
@@ -146,7 +150,7 @@ export const api = {
   updateProxylineSettings: (settings: Partial<ProxylineSettings>) => request<ProxylineSettings>("/settings/proxyline", { method: "PATCH", body: JSON.stringify(settings) }),
   deleteProxylineSettings: () => request<ProxylineSettings>("/settings/proxyline", { method: "DELETE" }),
   testSmtpSettings: (settings: Partial<SmtpSettings>) => request<{ ok: boolean }>("/settings/smtp/test", { method: "POST", body: JSON.stringify(settings) }),
-  logs: () => request<any[]>("/logs"),
+  logs: (filters?: { user?: string; action?: string; role?: string; date?: string }) => { const query = new URLSearchParams(Object.entries(filters ?? {}).filter(([, value]) => value) as Array<[string, string]>).toString(); return request<any[]>(`/logs${query ? `?${query}` : ""}`); },
   clearLogs: () => request<{ cleared: boolean }>("/logs", { method: "DELETE" }),
   pythonWorkerStatus: () => request<{ ok: boolean; url: string; capabilities: string[]; error?: string }>("/worker/python/status")
 };

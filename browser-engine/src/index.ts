@@ -10,6 +10,7 @@ export interface LaunchProfileOptions {
   request: LaunchProfileRequest;
   dataRoot: string;
   browserState?: ProfileSyncPayload;
+  onClose?: (profileId: string) => void;
 }
 
 export interface RunningProfile {
@@ -41,7 +42,7 @@ export async function getBrowserEngineStatus() {
   };
 }
 
-export async function launchProfile({ profile, proxy, request, dataRoot, browserState }: LaunchProfileOptions) {
+export async function launchProfile({ profile, proxy, request, dataRoot, browserState, onClose }: LaunchProfileOptions) {
   if (runningProfiles.has(profile.id)) {
     return { profileId: profile.id, alreadyRunning: true };
   }
@@ -103,6 +104,26 @@ export async function launchProfile({ profile, proxy, request, dataRoot, browser
       : undefined,
     permissions: fingerprint.geolocationAccess === "allow" ? ["geolocation"] : []
   });
+  let closed = false;
+  const handleClose = () => {
+    if (closed) return;
+    closed = true;
+    relay?.server.close();
+    runningProfiles.delete(profile.id);
+    onClose?.(profile.id);
+  };
+  const attachPageCloseListener = (page: Page) => {
+    page.once("close", () => {
+      queueMicrotask(() => {
+        if (context.pages().every((candidate) => candidate.isClosed())) handleClose();
+      });
+    });
+  };
+
+  context.once("close", handleClose);
+  context.browser()?.once("disconnected", handleClose);
+  context.pages().forEach(attachPageCloseListener);
+  context.on("page", attachPageCloseListener);
 
   if (browserState?.cookies?.length) await context.addCookies(browserState.cookies as any[]);
 
@@ -177,10 +198,6 @@ export async function launchProfile({ profile, proxy, request, dataRoot, browser
     startedAt: new Date().toISOString()
   });
 
-  context.on("close", () => {
-    relay?.server.close();
-    runningProfiles.delete(profile.id);
-  });
   return { profileId: profile.id, alreadyRunning: false };
 }
 
