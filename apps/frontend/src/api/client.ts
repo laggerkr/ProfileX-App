@@ -70,6 +70,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       setAuthToken(session.data.token); setRefreshToken(session.data.refreshToken);
       return request<T>(path, init);
     }
+    setAuthToken();
+    setRefreshToken();
+  }
+  if (response.status === 401) {
+    setAuthToken();
+    setRefreshToken();
   }
   if (!response.ok) throw new ApiRequestError(url, response.status, await response.text());
   const envelope = (await response.json()) as ApiEnvelope<T>;

@@ -22,10 +22,10 @@ import { acceptInvitation, createInvitation, listInvitations, resendInvitation, 
 
 export function createRoutes(db:AppDatabase){const router=Router();
 router.get('/health',(_q,r)=>r.json({data:{ok:true}})); router.get('/health/db',async(_q,r)=>{try{await db.one('SELECT 1'); return r.json({data:{ok:true}})}catch{return r.status(503).json({data:{ok:false}})}}); router.get('/health/ws',async(_q,r)=>r.json({data:{...websocketHealth(),cache:await cacheHealth()}}));
-router.post('/auth/register',async(q,r)=>r.status(201).json({data:await registerUser(db,q.body)}));
-router.post('/auth/login',async(q,r)=>r.json({data:await loginUser(db,q.body)})); router.post('/auth/refresh',async(q,r)=>r.json({data:await refreshSession(db,q.body.refreshToken)}));
-router.get('/auth/me',(q,r)=>{const u=getUserByToken(db,bearer(q.headers.authorization)); return u?r.json({data:u}):r.status(401).json({error:'Unauthorized'})});
-router.post('/auth/logout',async(q,r)=>{const u=getUserByToken(db,bearer(q.headers.authorization)); await logoutUser(db,q.body.refreshToken,u?.id); return r.json({data:{loggedOut:true}})});
+router.post('/auth/register',async(q,r,next)=>{try{return r.status(201).json({data:await registerUser(db,q.body)})}catch(error){return next(error)}});
+router.post('/auth/login',async(q,r,next)=>{try{return r.json({data:await loginUser(db,q.body)})}catch(error){return next(error)}}); router.post('/auth/refresh',async(q,r,next)=>{try{return r.json({data:await refreshSession(db,q.body.refreshToken)})}catch(error){return next(error)}});
+router.get('/auth/me',async(q,r)=>{const u=await getUserByToken(db,bearer(q.headers.authorization)); return u?r.json({data:u}):r.status(401).json({error:'Unauthorized'})});
+router.post('/auth/logout',async(q,r,next)=>{try{const u=await getUserByToken(db,bearer(q.headers.authorization)); await logoutUser(db,q.body.refreshToken,u?.id); return r.json({data:{loggedOut:true}})}catch(error){return next(error)}});
 router.post('/invitations/:token/accept',async(q,r)=>{const x=await acceptInvitation(db,q.params.token,q.body); return x?r.json({data:x}):r.status(404).json({error:'Invitation not found'})});
 router.use(requireAuth(db),requireOrganizationAccess());
 router.get('/users',requirePermission(db,'users.list',permissionChecks.manageUsers),async(_q,r)=>r.json({data:await listUsers(db,r.locals.authUser.organizationId)}));

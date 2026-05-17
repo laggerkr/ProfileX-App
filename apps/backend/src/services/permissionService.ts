@@ -23,9 +23,9 @@ const rank: Record<Role, number> = { owner: 5, admin: 4, manager: 3, member: 2, 
 export function can(role: Role, minimum: Role) { return rank[role] >= rank[minimum]; }
 
 export function requireAuth(db: AppDatabase): RequestHandler {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7).trim() : undefined;
-    const user = getUserByToken(db, token);
+    const user = await getUserByToken(db, token);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     res.locals.authUser = user;
     next();
