@@ -1884,12 +1884,18 @@ function InviteStatus({ invite }: { invite: { url: string; email: string; result
   );
 }
 
+function InviteToast({ tone, message, onClose }: { tone: "success" | "warning" | "error"; message: string; onClose: () => void }) {
+  const classes = tone === "success" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200" : tone === "warning" ? "bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-100" : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200";
+  return <div className={`mt-3 flex items-center justify-between rounded-lg px-3 py-2 text-sm ${classes}`}><span>{message}</span><button onClick={onClose}><X size={14} /></button></div>;
+}
+
 function MembersPage({ currentUser }: { currentUser: AuthUser }) {
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const availableInviteRoles = (["owner", "admin", "manager", "member", "client"] as Role[]).filter((role) => canInviteRole(currentUser.role, role));
   const [form, setForm] = useState({ email: "", role: (availableInviteRoles[0] ?? "member") as Role });
-  const [lastInvite, setLastInvite] = useState<string>();
+  const [lastInvite, setLastInvite] = useState<{ url: string; email: string; result?: EmailResult }>();
+  const [inviteToast, setInviteToast] = useState<{ tone: "success" | "warning" | "error"; message: string }>();
   const canManage = canManageUsers(currentUser.role);
   const load = async () => {
     if (!canManage) return;
@@ -1899,10 +1905,15 @@ function MembersPage({ currentUser }: { currentUser: AuthUser }) {
   };
   useEffect(() => { void load(); }, [canManage]);
   const invite = async () => {
-    const next = await api.createInvitation(form);
-    setLastInvite(next.inviteUrl);
-    setForm({ email: "", role: (availableInviteRoles[0] ?? "member") as Role });
-    await load();
+    try {
+      const next = await api.createInvitation(form);
+      setLastInvite({ url: next.inviteUrl, email: next.email, result: next.emailResult });
+      setInviteToast(next.emailResult?.sent ? { tone: "success", message: "Invitation email sent." } : { tone: "warning", message: "Invitation created but email delivery failed." });
+      setForm({ email: "", role: (availableInviteRoles[0] ?? "member") as Role });
+      await load();
+    } catch (error) {
+      setInviteToast({ tone: "error", message: normalizeApiError(error) });
+    }
   };
   if (!canManage) return <Panel title="Team / Users"><div className="text-sm text-gray-500">You do not have permission to manage users.</div></Panel>;
   return <section className="space-y-4">
@@ -1912,7 +1923,8 @@ function MembersPage({ currentUser }: { currentUser: AuthUser }) {
         <SelectInput label="Role" value={form.role} onChange={(role) => setForm((value) => ({ ...value, role: role as Role }))} options={availableInviteRoles.map((value) => ({ value, label: value }))} />
         <Button variant="primary" disabled={!availableInviteRoles.length} onClick={() => void invite()}>Invite user</Button>
       </div>
-      {lastInvite && <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">Invite link: <code>{lastInvite}</code></div>}
+      {inviteToast && <InviteToast tone={inviteToast.tone} message={inviteToast.message} onClose={() => setInviteToast(undefined)} />}
+      {lastInvite && <InviteStatus invite={lastInvite} />}
     </Panel>
     <Panel title="Users">
       <div className="space-y-2">{users.map((user) => {
@@ -1933,7 +1945,7 @@ function MembersPage({ currentUser }: { currentUser: AuthUser }) {
     </Panel>
     <Panel title="Pending invitations">
       <div className="space-y-2">{invitations.filter((invite) => invite.status === "pending").map((invite) => <div key={invite.id} className="grid grid-cols-[1fr_160px_180px_auto] items-center gap-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-[#202328]">
-        <div>{invite.email}</div><div><RoleBadge role={invite.role} /></div><div className="text-xs text-gray-500">Expires {new Date(invite.expiresAt).toLocaleDateString()}</div><div className="flex gap-2"><Button onClick={() => void api.resendInvitation(invite.id).then((next) => { setLastInvite(next.inviteUrl); return load(); })}>Resend</Button><Button onClick={() => void api.revokeInvitation(invite.id).then(load)}>Revoke</Button></div>
+        <div>{invite.email}</div><div><RoleBadge role={invite.role} /></div><div className="text-xs text-gray-500">Expires {new Date(invite.expiresAt).toLocaleDateString()}</div><div className="flex gap-2"><Button onClick={() => void api.resendInvitation(invite.id).then((next) => { setLastInvite({ url: next.inviteUrl, email: next.email, result: next.emailResult }); setInviteToast(next.emailResult?.sent ? { tone: "success", message: "Invitation email resent." } : { tone: "warning", message: "Invitation created but email delivery failed." }); return load(); }).catch((error) => setInviteToast({ tone: "error", message: normalizeApiError(error) }))}>Resend</Button><Button onClick={() => void api.revokeInvitation(invite.id).then(load)}>Revoke</Button></div>
       </div>)}</div>
     </Panel>
   </section>;

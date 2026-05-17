@@ -47,9 +47,6 @@ async function createWindow() {
     });
     if (isDev) {
         await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL!);
-        mainWindow.webContents.openDevTools({
-            mode: "detach"
-        });
     } else
         await mainWindow.loadFile(path.join(app.getAppPath(), "apps", "frontend", "dist", "index.html"));
 }

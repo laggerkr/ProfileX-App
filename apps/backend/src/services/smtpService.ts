@@ -1,5 +1,4 @@
 import type { Invitation, SmtpSettings, TeamInvitation } from "@profilex/shared";
-import { SMTP_FROM, SMTP_HOST, SMTP_PASSWORD, SMTP_PORT, SMTP_USER } from "../config.js";
 import net from "node:net";
 import tls from "node:tls";
 import type { AppDatabase } from "../database/db.js";
@@ -38,7 +37,7 @@ export async function testSmtpSettings(settings: SmtpSettings) {
   return { ok: true };
 }
 
-async function sendMail(settings: SmtpSettings, message: { to: string; subject: string; text: string }) {
+async function sendMail(settings: SmtpSettings, message: { to: string; subject: string; text: string; html?: string }) {
   const client = new SmtpClient(settings);
   await client.connect();
   const from = formatAddress(settings.fromEmail, settings.fromName);
@@ -53,9 +52,19 @@ async function sendMail(settings: SmtpSettings, message: { to: string; subject: 
       `Date: ${new Date().toUTCString()}`,
       `Message-ID: <${Date.now()}.${Math.random().toString(16).slice(2)}@profilex.local>`,
       "MIME-Version: 1.0",
-      "Content-Type: text/plain; charset=utf-8",
+      message.html ? 'Content-Type: multipart/alternative; boundary="profilex-boundary"' : "Content-Type: text/plain; charset=utf-8",
       "",
-      message.text
+      ...(message.html ? [
+        "--profilex-boundary",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        message.text,
+        "--profilex-boundary",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        message.html,
+        "--profilex-boundary--"
+      ] : [message.text])
     ].join("\r\n")
   );
   await client.quit();
@@ -163,9 +172,25 @@ function formatAddress(email: string, name: string) {
   return name ? `"${name.replace(/"/g, "'")}" <${email}>` : `<${email}>`;
 }
 
-export async function sendProfileInvitationEmail(invitation: Invitation) {
-  if (!SMTP_HOST) return { sent: false, skipped: true, inviteUrl: invitation.inviteUrl, reason: "SMTP is not configured" };
-  const settings: SmtpSettings = { enabled:true, host:SMTP_HOST, port:SMTP_PORT, secure:SMTP_PORT===465, startTls:SMTP_PORT!==465, username:SMTP_USER, password:SMTP_PASSWORD, fromEmail:SMTP_FROM, fromName:"ProfileX", inviteBaseUrl:"" };
-  await sendMail(settings,{to:invitation.email,subject:"You have been invited to ProfileX",text:["You have been invited to ProfileX.","",`Accept invitation: ${invitation.inviteUrl}`].join("\r\n")});
-  return { sent:true, skipped:false, inviteUrl:invitation.inviteUrl };
+export async function sendProfileInvitationEmail(db: AppDatabase, invitation: Invitation) {
+  const settings = await getSmtpSettings(db, { includePassword: true });
+  if (!settings.enabled) return { sent: false, skipped: true, inviteUrl: invitation.inviteUrl, reason: "SMTP is disabled" };
+  if (!settings.host || !settings.fromEmail) return { sent: false, skipped: true, inviteUrl: invitation.inviteUrl, reason: "SMTP settings are incomplete" };
+  const expirationDate = new Date(invitation.expiresAt).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
+  const subject = "You're invited to ProfileX workspace";
+  const text = [
+    "You have been invited to a ProfileX workspace.",
+    "",
+    `Role: ${invitation.role}`,
+    `Invitation expires: ${expirationDate}`,
+    "",
+    `Accept invitation: ${invitation.inviteUrl}`
+  ].join("\r\n");
+  const html = `<!doctype html><html><body style="margin:0;background:#f4f5f7;font-family:Arial,sans-serif;color:#111827"><div style="max-width:560px;margin:32px auto;padding:28px;background:#ffffff;border-radius:18px;border:1px solid #e5e7eb"><div style="font-size:24px;font-weight:700">You're invited to ProfileX workspace</div><p style="color:#4b5563;line-height:1.5">You have been invited to join a ProfileX workspace.</p><div style="margin:20px 0;padding:16px;background:#f9fafb;border-radius:12px"><div><strong>Role:</strong> ${escapeHtml(invitation.role)}</div><div style="margin-top:8px"><strong>Expires:</strong> ${escapeHtml(expirationDate)}</div></div><a href="${escapeHtml(invitation.inviteUrl)}" style="display:inline-block;padding:12px 18px;background:#111827;color:#ffffff;text-decoration:none;border-radius:10px;font-weight:600">Accept Invitation</a><p style="margin-top:24px;color:#6b7280;font-size:13px">If the button does not work, open this link:<br><span>${escapeHtml(invitation.inviteUrl)}</span></p></div></body></html>`;
+  await sendMail(settings, { to: invitation.email, subject, text, html });
+  return { sent: true, skipped: false, inviteUrl: invitation.inviteUrl };
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] ?? char));
 }
