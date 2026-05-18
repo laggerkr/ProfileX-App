@@ -31,10 +31,18 @@ export async function sendInvitationEmail(db: AppDatabase, invitation: TeamInvit
 }
 
 export async function testSmtpSettings(settings: SmtpSettings) {
-  const client = new SmtpClient(settings);
-  await client.connect();
-  await client.quit();
-  return { ok: true };
+  if (!settings.enabled) {
+    return { success: false, ok: false, code: "SMTP_DISABLED", message: "SMTP email invites are disabled." };
+  }
+
+  try {
+    const client = new SmtpClient(settings);
+    await client.connect();
+    await client.quit();
+    return { success: true, ok: true };
+  } catch (error) {
+    return normalizeSmtpError(error);
+  }
 }
 
 async function sendMail(settings: SmtpSettings, message: { to: string; subject: string; text: string; html?: string }) {
@@ -170,6 +178,20 @@ class SmtpClient {
 
 function formatAddress(email: string, name: string) {
   return name ? `"${name.replace(/"/g, "'")}" <${email}>` : `<${email}>`;
+}
+
+function normalizeSmtpError(error: unknown) {
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  if (/SMTP error 535/i.test(rawMessage)) {
+    return { success: false, ok: false, code: "SMTP_AUTH_FAILED", message: "SMTP authentication failed. Check username/password." };
+  }
+  if (/timed out/i.test(rawMessage)) {
+    return { success: false, ok: false, code: "SMTP_TIMEOUT", message: "SMTP connection timed out." };
+  }
+  if (/tls|certificate|ssl/i.test(rawMessage)) {
+    return { success: false, ok: false, code: "SMTP_TLS_ERROR", message: "SMTP TLS connection failed." };
+  }
+  return { success: false, ok: false, code: "SMTP_CONNECTION_FAILED", message: rawMessage };
 }
 
 export async function sendProfileInvitationEmail(db: AppDatabase, invitation: Invitation) {

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@profilex/shared": "0.1.0",
+    "@simplewebauthn/server": "^13.3.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",

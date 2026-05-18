@@ -1,5 +1,6 @@
-import { canAccessPage, canChangeRole, canClearLogs, canCreateProfile, canDeleteProfile, canDeleteUser, canEditProfile, canInviteRole, canLaunchProfile, canManageFingerprints, canManageRdp, canManageUsers, roleDescriptions, type AuthSession, type AuthUser, type BrowserProfile, type Invitation, type FingerprintSettings, type ProfileCompatibilityCheck, type ProxylineSettings, type ProxySettings, type RdpConnection, type Role, type SmtpSettings, type TeamWorkspaceData, type WorkspacePage } from "@profilex/shared";
+import { canAccessPage, canChangeRole, canClearLogs, canCreateProfile, canDeleteProfile, canDeleteUser, canEditProfile, canInviteRole, canLaunchProfile, canManageFingerprints, canManageRdp, canManageUsers, roleDescriptions, type AuthSession, type AuthUser, type CloudAppLockSettings, type ProxyTrafficStats, type BillingStatus, type CryptoPaymentRequest, type BrowserProfile, type Invitation, type FingerprintSettings, type ProfileCompatibilityCheck, type ProxylineSettings, type ProxySettings, type RdpConnection, type Role, type SmtpSettings, type TeamWorkspaceData, type WorkspacePage } from "@profilex/shared";
 import { Activity, Apple, Chrome, Copy, Database, Fingerprint, FolderKanban, Globe2, KeyRound, Monitor, Moon, Pencil, Play, Plus, RefreshCcw, Shield, Smartphone, Square, Sun, Terminal, Trash2, Upload, UserPlus, Users, X } from "lucide-react";
+import { browserSupportsWebAuthnAutofill, startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/Button";
 import { Shell } from "./components/Shell";
@@ -9,13 +10,16 @@ import { useWorkspaceStore } from "./store/useWorkspaceStore";
 
 export function App() {
   const { activePage, refresh, initProfileCloseListener } = useWorkspaceStore();
-  const [isLocked, setLocked] = useState(() => getAppLockSettings().enabled);
+  const [isLocked, setLocked] = useState(() => Boolean(window.profilex) && getAppLockSettings().enabled);
   const [authUser, setAuthUser] = useState<AuthUser>();
   const [authReady, setAuthReady] = useState(false);
   useTheme();
 
   useEffect(() => {
     void api.me().then(setAuthUser).catch(() => { setAuthToken(); setRefreshToken(); }).finally(() => setAuthReady(true));
+    const clearAuthUser = () => setAuthUser(undefined);
+    window.addEventListener("profilex:auth-cleared", clearAuthUser);
+    return () => window.removeEventListener("profilex:auth-cleared", clearAuthUser);
   }, []);
 
   useEffect(() => {
@@ -44,7 +48,7 @@ export function App() {
   if (inviteToken) return <AcceptInvitationPage token={inviteToken} />;
   if (!authReady) return <div className="flex min-h-screen items-center justify-center bg-panel text-sm text-gray-500 dark:bg-[#111315]">Loading...</div>;
   if (!authUser) return <LoginPage onAuthenticated={(session) => { setAuthToken(session.token); setRefreshToken(session.refreshToken); setAuthUser(session.user); }} />;
-  if (isLocked) return <AppLockGate onUnlock={() => setLocked(false)} />;
+  if (isLocked) return <AppLockGate currentUser={authUser} onUnlock={() => setLocked(false)} />;
 
   return (
     <Shell currentUser={authUser} onLogout={() => void logout()}>
@@ -59,6 +63,7 @@ export function App() {
         {activePage === "Logs" && <Logs currentUser={authUser} />}
         {activePage === "Automation API" && <AutomationApi />}
         {activePage === "Settings" && <Settings currentUser={authUser} />}
+        {activePage === "Billing" && <Billing />}
         {activePage === "Login Page" && <LoginPage />}
         {activePage === "Recovery" && <Recovery />}
       </div>
@@ -69,12 +74,13 @@ export function App() {
 function Dashboard({ currentUser }: { currentUser: AuthUser }) {
   const { dashboard, refresh } = useWorkspaceStore();
   const [browserStatus, setBrowserStatus] = useState<any>();
+  const [proxyTraffic, setProxyTraffic] = useState<ProxyTrafficStats>();
   const usage = dashboard?.usage ?? [];
   const maxLaunches = Math.max(1, ...usage.map((item) => item.launches));
   const refreshDashboard = async () => {
-    await Promise.all([refresh(), api.browserStatus().then(setBrowserStatus)]);
+    await Promise.all([refresh(), api.browserStatus().then(setBrowserStatus), api.proxyTraffic().then(setProxyTraffic)]);
   };
-  useEffect(() => { if (currentUser.role !== "client") void api.browserStatus().then(setBrowserStatus); }, [currentUser.role]);
+  useEffect(() => { if (currentUser.role !== "client") { void api.browserStatus().then(setBrowserStatus); void api.proxyTraffic().then(setProxyTraffic); } }, [currentUser.role]);
   if (currentUser.role === "client") return <ClientDashboard />;
   return (
     <section className="space-y-6">
@@ -120,7 +126,18 @@ function Dashboard({ currentUser }: { currentUser: AuthUser }) {
           </div>
         </Panel>
       </div>
-      <Panel title="Installed browser runtimes">
+      <Panel title="Proxy traffic">
+        <div className="grid gap-3 md:grid-cols-5">
+          <TrafficStat label="Total" bytes={proxyTraffic?.total.totalBytes ?? 0} />
+          <TrafficStat label="Incoming" bytes={proxyTraffic?.total.bytesIn ?? 0} />
+          <TrafficStat label="Outgoing" bytes={proxyTraffic?.total.bytesOut ?? 0} />
+          <TrafficStat label="Today" bytes={proxyTraffic?.today.totalBytes ?? 0} />
+          <TrafficStat label="Last 7 days" bytes={proxyTraffic?.last7days.totalBytes ?? 0} />
+        </div>
+        <div className="mt-4 space-y-2 text-sm">
+          {(proxyTraffic?.byProxy.length ? proxyTraffic.byProxy : [{ proxyId: "none", proxyName: "No traffic recorded yet", bytesIn: 0, bytesOut: 0, totalBytes: 0 }]).map((item: { proxyId: string; proxyName: string; totalBytes: number }) => <div key={item.proxyId} className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-[#202328]"><span>{item.proxyName}</span><span className="text-gray-500">{formatBytes(item.totalBytes)}</span></div>)}
+        </div>
+      </Panel>      <Panel title="Installed browser runtimes">
         <div className="grid grid-cols-3 gap-3 text-sm">
           {(browserStatus?.engines ?? []).map((engine: any) => (
             <div key={engine.id} className="rounded-lg bg-gray-50 p-3 dark:bg-[#202328]">
@@ -472,7 +489,7 @@ function InlineProfileNotesDialog({
 }) {
   const [value, setValue] = useState(profile.notes ?? "");
   return (
-    <InlineProfileEditDialog title={`Notes ? ${profile.name}`} onClose={onClose} onSave={() => onSave(value.trim() || undefined)}>
+    <InlineProfileEditDialog title={`Notes: ${profile.name}`} onClose={onClose} onSave={() => onSave(value.trim() || undefined)}>
       <TextArea label="Notes" value={value} onChange={setValue} placeholder="Add notes" />
     </InlineProfileEditDialog>
   );
@@ -489,7 +506,7 @@ function InlineProfileTagsDialog({
 }) {
   const [value, setValue] = useState(profile.tags.join(", "));
   return (
-    <InlineProfileEditDialog title={`Tags ? ${profile.name}`} onClose={onClose} onSave={() => onSave(splitList(value))}>
+    <InlineProfileEditDialog title={`Tags: ${profile.name}`} onClose={onClose} onSave={() => onSave(splitList(value))}>
       <TextInput label="Tags" value={value} onChange={setValue} placeholder="LV, WT-Admin, support" autoFocus />
     </InlineProfileEditDialog>
   );
@@ -882,6 +899,7 @@ function RdpPage({ currentUser }: { currentUser: AuthUser }) {
   const [status, setStatus] = useState<string>();
   const isDesktopApp = Boolean(window.profilex);
   const canManage = canManageRdp(currentUser.role);
+  const canViewSecrets = currentUser.role === "owner" || currentUser.role === "admin";
 
   const refreshRdp = async () => setConnections(await api.rdpConnections());
   useEffect(() => { void refreshRdp(); }, []);
@@ -910,7 +928,7 @@ function RdpPage({ currentUser }: { currentUser: AuthUser }) {
         <div className="overflow-hidden rounded-xl border border-line dark:border-white/10">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-[#202328]">
-              <tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">IP / host</th><th className="px-3 py-2">Login</th><th className="px-3 py-2">Domain</th><th className="px-3 py-2">Last launch</th><th className="px-3 py-2 text-right">Actions</th></tr>
+              <tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">IP / host</th><th className="px-3 py-2">Login</th>{canViewSecrets && <th className="px-3 py-2">Password</th>}<th className="px-3 py-2">Domain</th><th className="px-3 py-2">Last launch</th><th className="px-3 py-2 text-right">Actions</th></tr>
             </thead>
             <tbody>
               {connections.map((connection) => (
@@ -2039,9 +2057,11 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
   const [proxylineStatus, setProxylineStatus] = useState<string>();
   const [biometricAvailable, setBiometricAvailable] = useState<boolean>();
   const [appLock, setAppLock] = useState<AppLockSettings>(() => getAppLockSettings());
+  const [cloudAppLock, setCloudAppLock] = useState<CloudAppLockSettings>({ enabled: false });
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [securityStatus, setSecurityStatus] = useState<string>();
+  const [passkeys, setPasskeys] = useState<Array<{ credentialId: string; createdAt: string; lastUsedAt?: string }>>([]);
   const [operations, setOperations] = useState<OperationsSettings>(() => getOperationsSettings());
 
   useEffect(() => {
@@ -2052,6 +2072,7 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
         setProxylineAccountName(settings.accountName ?? "");
       });
     }
+    if (!window.profilex) void api.webauthnCredentials().then(setPasskeys).catch(() => undefined);
     if (!window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
       setBiometricAvailable(false);
       return;
@@ -2079,10 +2100,10 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
 
   const testSmtp = async () => {
     try {
-      await api.testSmtpSettings({ ...smtp, ...(smtpPassword ? { password: smtpPassword } : {}) });
-      setSmtpStatus("SMTP connection test passed.");
+      const result = await api.testSmtpSettings({});
+      setSmtpStatus(result.success ? "SMTP connection test passed." : result.message ?? "SMTP test failed.");
     } catch (error) {
-      setSmtpStatus(error instanceof Error ? error.message : "SMTP test failed.");
+      setSmtpStatus(normalizeApiError(error));
     }
   };
 
@@ -2103,6 +2124,11 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
   const saveAppLock = (next: AppLockSettings) => {
     setAppLock(next);
     storeAppLockSettings(next);
+  };
+
+  const saveCloudAppLock = async (enabled: boolean) => {
+    const next = await api.updateCloudAppLockSettings({ enabled });
+    setCloudAppLock(next);
   };
 
   const savePin = async () => {
@@ -2132,6 +2158,33 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
     }
   };
 
+  const addPasskey = async () => {
+    try {
+      if (!window.PublicKeyCredential) throw new Error("Passkeys are not supported in this browser.");
+      const optionsJSON = await api.webauthnRegisterOptions();
+      const response = await startRegistration({ optionsJSON });
+      await api.webauthnRegisterVerify(response);
+      const nextPasskeys = await api.webauthnCredentials();
+      setPasskeys(nextPasskeys);
+      saveAppLock({ ...appLock, enabled: true, passkeyEnabled: true });
+      setSecurityStatus("Passkey added.");
+    } catch (error) {
+      setSecurityStatus(formatPasskeyError(error));
+    }
+  };
+
+  const removePasskey = async (credentialId: string) => {
+    try {
+      await api.removeWebauthnCredential(credentialId);
+      const nextPasskeys = await api.webauthnCredentials();
+      setPasskeys(nextPasskeys);
+      saveAppLock({ ...appLock, passkeyEnabled: nextPasskeys.length > 0, enabled: Boolean(nextPasskeys.length || appLock.biometricEnabled || appLock.pinEnabled) });
+      setSecurityStatus("Passkey removed.");
+    } catch (error) {
+      setSecurityStatus(formatPasskeyError(error));
+    }
+  };
+
   const disableAppLock = () => {
     saveAppLock({ enabled: false, defaultMethod: "pin" });
     setSecurityStatus("App lock disabled.");
@@ -2147,17 +2200,6 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
 
   return (
     <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-      <Panel title="Appearance">
-        <div className="grid grid-cols-2 gap-3">
-          <Button className="justify-center" variant={theme === "light" ? "primary" : "secondary"} icon={<Sun size={16} />} onClick={() => changeTheme("light")}>
-            Light
-          </Button>
-          <Button className="justify-center" variant={theme === "dark" ? "primary" : "secondary"} icon={<Moon size={16} />} onClick={() => changeTheme("dark")}>
-            Dark
-          </Button>
-        </div>
-        <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">Theme preference is saved locally for this app.</div>
-      </Panel>
       {currentUser.role === "owner" && <Panel title="SMTP invites">
         <div className="grid gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -2222,14 +2264,38 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
         </div>
         {proxylineStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{proxylineStatus}</div>}
       </Panel>}
-      <Panel title="App lock">
+      <Panel title={window.profilex ? "Desktop app lock" : "Web app lock"}>
         <div className="space-y-3">
+          {!window.profilex && <SecurityMethodCard
+            icon={<KeyRound size={18} />}
+            title="Passkey"
+            description="Use browser passkeys with Windows Hello, PIN or fingerprint"
+            enabled={passkeys.length > 0}
+            expanded
+          >
+            <div className="space-y-2">
+              {passkeys.map((passkey) => (
+                <div key={passkey.credentialId} className="flex items-center justify-between gap-3 rounded-lg bg-white p-3 text-sm dark:bg-[#17191c]">
+                  <div>
+                    <div className="font-medium">Passkey configured</div>
+                    <div className="text-xs text-gray-500">Added {new Date(passkey.createdAt).toLocaleDateString()}</div>
+                  </div>
+                  <Button onClick={() => void removePasskey(passkey.credentialId)}>Remove passkey</Button>
+                </div>
+              ))}
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-gray-500">{passkeys.length ? "Ready for browser sign-in and app unlock" : "Not configured"}</span>
+                <Button onClick={() => void addPasskey()}>Add passkey</Button>
+              </div>
+            </div>
+          </SecurityMethodCard>}
+          {window.profilex && <>
           <SecurityMethodCard
             icon={<Fingerprint size={18} />}
             title="Fingerprint recognition (Windows Hello)"
             description="Sign in with Windows Hello on this device"
             enabled={Boolean(appLock.biometricEnabled)}
-            expanded={Boolean(appLock.biometricEnabled)}
+            expanded
           >
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-gray-500">{appLock.biometricCredentialId ? "Configured on this device" : "Not configured"}</span>
@@ -2244,7 +2310,7 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
             title="PIN code (Windows Hello)"
             description="Windows Hello can offer system PIN during unlock"
             enabled={Boolean(appLock.pinEnabled)}
-            expanded={Boolean(appLock.pinEnabled)}
+            expanded
           >
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-gray-500">{appLock.pinHash ? "Local fallback PIN configured" : "Optional local fallback"}</span>
@@ -2261,12 +2327,13 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
               </div>
             )}
           </SecurityMethodCard>
+          </>}
           <div className="flex items-center justify-between rounded-xl bg-gray-50 p-4 dark:bg-[#202328]">
             <div>
               <div className="font-medium">App protection</div>
-              <div className="text-sm text-gray-500">{appLock.enabled ? "Enabled" : "Disabled"}</div>
+              <div className="text-sm text-gray-500">{cloudAppLock.enabled ? "Enabled for workspace" : "Disabled for workspace"}</div>
             </div>
-            {appLock.enabled ? <Button onClick={disableAppLock}>Disable</Button> : <Button variant="primary" disabled={!appLock.biometricCredentialId && !appLock.pinHash} onClick={() => saveAppLock({ ...appLock, enabled: true })}>Enable</Button>}
+            {cloudAppLock.enabled ? <Button onClick={() => void saveCloudAppLock(false)}>Disable workspace lock</Button> : <Button variant="primary" onClick={() => void saveCloudAppLock(true)}>Enable workspace lock</Button>}
           </div>
         </div>
         {securityStatus && <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-[#202328] dark:text-gray-300">{securityStatus}</div>}
@@ -2288,6 +2355,14 @@ function Settings({ currentUser }: { currentUser: AuthUser }) {
 }
 
 
+function formatPasskeyError(error: unknown) {
+  if (error instanceof ApiRequestError) return normalizeApiError(error);
+  if (!(error instanceof Error)) return "Passkey operation failed.";
+  if (error.name === "NotAllowedError") return "Passkey request was cancelled.";
+  if (error.name === "InvalidStateError") return "This passkey is already registered.";
+  if (error.name === "NotSupportedError") return "Passkeys are not supported in this browser.";
+  return error.message || "Passkey operation failed.";
+}
 function normalizeApiError(error: unknown) {
   if (error instanceof ApiRequestError) {
     return [
@@ -2344,12 +2419,13 @@ function useTheme() {
   }, []);
 }
 
-type AppUnlockMethod = "pin" | "biometric";
+type AppUnlockMethod = "pin" | "biometric" | "passkey";
 type AppLockSettings = {
   enabled: boolean;
   defaultMethod: AppUnlockMethod;
   pinEnabled?: boolean;
   biometricEnabled?: boolean;
+  passkeyEnabled?: boolean;
   pinSalt?: string;
   pinHash?: string;
   biometricCredentialId?: string;
@@ -2431,9 +2507,9 @@ async function verifyBiometricCredential(credentialId: string) {
   return Boolean(credential);
 }
 
-function AppLockGate({ onUnlock }: { onUnlock: () => void }) {
+function AppLockGate({ currentUser, onUnlock }: { currentUser: AuthUser; onUnlock: () => void }) {
   const settings = getAppLockSettings();
-  const [status, setStatus] = useState("Waiting for Windows Hello...");
+  const [status, setStatus] = useState(window.profilex ? "Waiting for Windows Hello..." : "Use your web passkey to unlock ProfileX.");
   const [pin, setPin] = useState("");
 
   const unlockWithSystem = async () => {
@@ -2442,6 +2518,17 @@ function AppLockGate({ onUnlock }: { onUnlock: () => void }) {
       if (await verifyBiometricCredential(settings.biometricCredentialId)) onUnlock();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Windows Hello unlock failed.");
+    }
+  };
+
+  const unlockWithPasskey = async () => {
+    try {
+      const optionsJSON = await api.webauthnUnlockOptions();
+      const response = await startAuthentication({ optionsJSON });
+      const result = await api.webauthnUnlockVerify(response);
+      if (result.verified) onUnlock();
+    } catch (error) {
+      setStatus(formatPasskeyError(error));
     }
   };
 
@@ -2456,7 +2543,7 @@ function AppLockGate({ onUnlock }: { onUnlock: () => void }) {
   };
 
   useEffect(() => {
-    if (settings.biometricCredentialId) void unlockWithSystem();
+    if (window.profilex && settings.biometricCredentialId) void unlockWithSystem();
   }, []);
 
   return (
@@ -2465,8 +2552,9 @@ function AppLockGate({ onUnlock }: { onUnlock: () => void }) {
         <h1 className="text-xl font-semibold">ProfileX is locked</h1>
         <p className="mt-2 text-sm text-gray-500">{status}</p>
         <div className="mt-5 space-y-3">
-          {settings.biometricCredentialId && <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithSystem()}>Open Windows Hello</Button>}
-          {!settings.biometricCredentialId && settings.pinHash && (
+          {window.profilex && settings.biometricCredentialId && <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithSystem()}>Open Windows Hello</Button>}
+          {!window.profilex && settings.passkeyEnabled && <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithPasskey()}>Unlock with passkey</Button>}
+          {(!window.profilex || !settings.biometricCredentialId) && settings.pinHash && (
             <>
               <TextInput label="PIN code" value={pin} onChange={setPin} type="password" autoFocus />
               <Button className="w-full justify-center" variant="primary" onClick={() => void unlockWithPin()}>Unlock</Button>
@@ -2524,13 +2612,77 @@ function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: AuthSessio
     }
   };
 
+  const isRegister = mode === "register";
+  const changeMode = (nextMode: "login" | "register") => {
+    setMode(nextMode);
+    setError(undefined);
+  };
+
+  useEffect(() => {
+    if (window.profilex || mode !== "login") return;
+    let active = true;
+    void browserSupportsWebAuthnAutofill().then(async (supported) => {
+      if (!supported || !active) return;
+      try {
+        const { challengeId, options } = await api.webauthnDiscoverableLoginOptions();
+        const response = await startAuthentication({ optionsJSON: options, useBrowserAutofill: true });
+        if (!active) return;
+        const session = await api.webauthnDiscoverableLoginVerify(challengeId, response);
+        setAuthToken(session.token);
+        setRefreshToken(session.refreshToken);
+        onAuthenticated?.(session);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (active && error instanceof Error && error.name !== "AbortError" && error.name !== "NotAllowedError" && !message.includes("Passkey not found")) setError(formatPasskeyError(error));
+      }
+    });
+    return () => { active = false; };
+  }, [mode]);
+
+  const signInPasswordless = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (!window.PublicKeyCredential) throw new Error("Passkeys are not supported in this browser.");
+      const { challengeId, options } = await api.webauthnDiscoverableLoginOptions();
+      const response = await startAuthentication({ optionsJSON: options });
+      const session = await api.webauthnDiscoverableLoginVerify(challengeId, response);
+      setAuthToken(session.token);
+      setRefreshToken(session.refreshToken);
+      onAuthenticated?.(session);
+    } catch (submitError) {
+      setError(formatPasskeyError(submitError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signInWithPasskey = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (!window.PublicKeyCredential) throw new Error("Passkeys are not supported in this browser.");
+      if (!email.trim()) throw new Error("Enter your email before using a passkey.");
+      const optionsJSON = await api.webauthnLoginOptions(email);
+      const response = await startAuthentication({ optionsJSON });
+      const session = await api.webauthnLoginVerify(email, response);
+      setAuthToken(session.token);
+      setRefreshToken(session.refreshToken);
+      onAuthenticated?.(session);
+    } catch (submitError) {
+      setError(formatPasskeyError(submitError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async () => {
     setBusy(true);
     setError(undefined);
     try {
-      const session = mode === "login"
-        ? await api.login({ email, password })
-        : await api.register({ name, email, password });
+      const session = isRegister
+        ? await api.register({ name, email, password })
+        : await api.login({ email, password });
       setAuthToken(session.token);
       setRefreshToken(session.refreshToken);
       onAuthenticated?.(session);
@@ -2545,16 +2697,20 @@ function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: AuthSessio
     <div className="flex min-h-screen items-center justify-center bg-panel p-6 dark:bg-[#111315]">
       <div className="w-full max-w-lg rounded-2xl border border-line bg-white p-6 shadow-soft dark:border-white/10 dark:bg-[#17191c]">
         <div className="grid grid-cols-2 rounded-xl bg-gray-50 p-1 dark:bg-[#202328]">
-          <button className={`rounded-lg px-3 py-2 text-sm ${mode === "login" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => setMode("login")}>Sign in</button>
-          <button className={`rounded-lg px-3 py-2 text-sm ${mode === "register" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => setMode("register")}>Register</button>
+          <button type="button" className={`rounded-lg px-3 py-2 text-sm ${mode === "login" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => changeMode("login")}>Sign in</button>
+          <button type="button" className={`rounded-lg px-3 py-2 text-sm ${mode === "register" ? "bg-white font-medium shadow-sm dark:bg-[#17191c]" : "text-gray-500"}`} onClick={() => changeMode("register")}>Register</button>
         </div>
         <h1 className="mt-5 text-xl font-semibold">{mode === "login" ? "Welcome back" : "Create ProfileX account"}</h1>
         <form className="mt-4 space-y-3" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
           {mode === "register" && <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Name" value={name} onChange={(event) => setName(event.target.value)} />}
-          <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Email" type="email" autoComplete="username webauthn" value={email} onChange={(event) => setEmail(event.target.value)} />
           <input className="h-10 w-full rounded-lg border border-line bg-transparent px-3 outline-none dark:border-white/10" placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
           {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
-          <Button className="w-full justify-center" variant="primary" disabled={busy}>{busy ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}</Button>
+          <Button type="submit" className="w-full justify-center" variant="primary" disabled={busy}>{busy ? "Please wait..." : isRegister ? "Create account" : "Sign in"}</Button>
+          {!window.profilex && mode === "login" && <div className="grid gap-2 sm:grid-cols-2">
+            <Button type="button" className="w-full justify-center" disabled={busy} onClick={() => void signInPasswordless()}>Use a passkey</Button>
+            <Button type="button" className="w-full justify-center" disabled={busy} onClick={() => void signInWithPasskey()}>Passkey for email</Button>
+          </div>}
           <button type="button" className="w-full text-sm text-blue-500" onClick={() => void checkApi()}>Check API connection</button>
           {diagnostic && <pre className="whitespace-pre-wrap rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-[#202328] dark:text-gray-300">{diagnostic}</pre>}
           {mode === "login" && <button type="button" className="w-full text-sm text-blue-500" onClick={() => alert("Password recovery will be added next.")}>Forgot password?</button>}
@@ -2564,13 +2720,75 @@ function LoginPage({ onAuthenticated }: { onAuthenticated?: (session: AuthSessio
   );
 }
 
-function Recovery() {
-  return (
-    <div className="grid grid-cols-3 gap-4">
-      <Panel title="Crash recovery"><Field label="Profile windows" value="Restore last known session" /></Panel>
-      <Panel title="Profile backup"><Field label="Schedule" value="Daily encrypted archive" /></Panel>
-      <Panel title="Cloud sync"><Field label="Mode" value="Optional company tenant" /></Panel>
+function Billing() {
+  const [billing, setBilling] = useState<BillingStatus>();
+  const [error, setError] = useState<string>();
+  const [requests, setRequests] = useState<CryptoPaymentRequest[]>([]);
+  useEffect(() => { void api.billing().then(setBilling).catch((caught) => setError(normalizeApiError(caught))); void api.paymentRequests().then(setRequests).catch(() => undefined); }, []);
+  const statusTone = billing?.status === "expired" ? "text-red-600" : billing?.status === "active" ? "text-emerald-600" : "text-amber-600";
+  return <section className="space-y-4">
+    <div><h1 className="text-2xl font-semibold">Billing</h1><p className="text-sm text-gray-500">Crypto-only workspace license.</p></div>
+    {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+    <div className="grid gap-4 md:grid-cols-3">
+      <Panel title="License"><Field label="Plan" value={billing?.plan ?? "Loading..."} /><div className={`text-sm font-semibold ${statusTone}`}>{billing?.status ?? "loading"}</div></Panel>
+      <Panel title="Validity"><Field label="Expires" value={billing ? new Date(billing.expiresAt).toLocaleDateString() : "Loading..."} /><Field label="Days left" value={String(billing?.daysLeft ?? "-")} /></Panel>
+      <Panel title="When expired"><div className="text-sm text-gray-500">Data, settings and management stay available. Only browser profile launch and RDP launch are blocked.</div></Panel>
     </div>
+    <Panel title="Pay with crypto only"><div className="space-y-3 text-sm">{(billing?.wallets ?? []).map((wallet) => <div key={wallet.network} className="rounded-lg bg-gray-50 p-3 dark:bg-[#202328]"><div className="text-xs text-gray-500">{wallet.network}</div><div className="mt-1 break-all font-mono">{wallet.address}</div></div>)}<div className="flex gap-2"><Button onClick={() => void api.createPaymentRequest({ amountUsd: 49 }).then((request) => setRequests((current) => [request, ...current]))}>Create monthly payment request</Button><Button onClick={() => void api.createPaymentRequest({ amountUsd: 490 }).then((request) => setRequests((current) => [request, ...current]))}>Create yearly payment request</Button></div><div className="text-gray-500">After payment, the license is extended by an administrator after transaction confirmation.</div></div></Panel>
+    <Panel title="Payment requests"><div className="space-y-2 text-sm">{requests.length ? requests.map((request) => <div key={request.id} className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-[#202328]"><span>{request.network} | ${request.amountUsd}</span><span className="text-gray-500">{request.status}</span></div>) : <div className="text-gray-500">No payment requests yet.</div>}</div></Panel>
+  </section>;
+}
+
+function Recovery() {
+  const [message, setMessage] = useState<string>();
+  const [busy, setBusy] = useState<string>();
+
+  const run = async (key: string, action: () => Promise<unknown>, success: string) => {
+    setBusy(key);
+    setMessage(undefined);
+    try {
+      await action();
+      setMessage(success);
+    } catch (error) {
+      setMessage(normalizeApiError(error));
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  const createBackup = async () => {
+    const backup = await api.createBackup();
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `profilex-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const restoreBackup = async () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json,.json";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file || !window.confirm("Restore profiles, proxies and settings from this backup?")) return;
+      const payload = JSON.parse(await file.text());
+      await run("restore", () => api.restoreBackup(payload), "Backup restored.");
+    };
+    input.click();
+  };
+
+  return (
+    <section className="space-y-4">
+      <div><h1 className="text-2xl font-semibold">Recovery</h1><p className="text-sm text-gray-500">Create backups and repair stale local runtime state.</p></div>
+      {message && <div className="rounded-lg bg-gray-50 px-4 py-3 text-sm dark:bg-[#202328]">{message}</div>}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Panel title="Backup"><div className="space-y-3 text-sm text-gray-500"><p>Export profiles, proxies and workspace settings to a JSON backup.</p><div className="flex gap-2"><Button variant="primary" disabled={Boolean(busy)} onClick={() => void run("backup", createBackup, "Backup created.")}>Create backup</Button><Button disabled={Boolean(busy)} onClick={() => void restoreBackup()}>Restore backup</Button></div></div></Panel>
+        <Panel title="Runtime repair"><div className="space-y-3 text-sm text-gray-500"><p>Clear stale sessions and fix profiles stuck in running state after crashes.</p><div className="flex flex-wrap gap-2"><Button disabled={Boolean(busy)} onClick={() => window.confirm("Clear stale sessions and locks?") && void run("sessions", () => api.clearStaleSessions(), "Stale sessions cleared.")}>Clear stale sessions</Button><Button disabled={Boolean(busy)} onClick={() => window.confirm("Fix profiles stuck in running state?") && void run("running", () => api.fixRunningProfiles(), "Stuck running profiles fixed.")}>Fix stuck running profiles</Button></div></div></Panel>
+      </div>
+    </section>
   );
 }
 
@@ -2710,3 +2928,5 @@ function TextArea({
     </label>
   );
 }
+function TrafficStat({label,bytes}:{label:string;bytes:number}){return <div className="rounded-lg bg-gray-50 p-3 dark:bg-[#202328]"><div className="text-xs text-gray-500">{label}</div><div className="font-medium">{formatBytes(bytes)}</div></div>}
+function formatBytes(bytes:number){if(bytes>=1024**3)return `${(bytes/1024**3).toFixed(2)} GB`; if(bytes>=1024**2)return `${(bytes/1024**2).toFixed(2)} MB`; if(bytes>=1024)return `${(bytes/1024).toFixed(1)} KB`; return `${bytes} B`}

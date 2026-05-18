@@ -47,6 +47,7 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 4387
+      PUBLIC_REGISTRATION: "true"
       DATABASE_URL: postgresql://${POSTGRES_USER:-profilex}:${POSTGRES_PASSWORD:-profilex-dev-password}@postgres:5432/${POSTGRES_DB:-profilex}
       REDIS_URL: ${REDIS_URL:-}
     ports:

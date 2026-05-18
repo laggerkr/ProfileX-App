@@ -1,4 +1,4 @@
-import type { ApiEnvelope, AuthSession, AuthUser, BrowserProfile, DashboardStats, FingerprintSettings, ProfileCompatibilityCheck, ProfileSyncPayload, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, Invitation, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
+import type { ApiEnvelope, AuthSession, AuthUser, CloudAppLockSettings, BrowserProfile, DashboardStats, FingerprintSettings, ProfileCompatibilityCheck, ProfileSyncPayload, ProxylineSettings, ProxySettings, RdpConnection, Role, SmtpSettings, Invitation, PasskeyCredentialSummary, ProxyTrafficStats, BillingStatus, CryptoPaymentRequest, TeamGroup, TeamInvitation, TeamMember, TeamWorkspaceData } from "@profilex/shared";
 
 const DEFAULT_API_URL = "https://api.profilex.com.ua";
 export const apiUrl = (import.meta.env.VITE_API_URL || DEFAULT_API_URL).replace(/\/$/, "");
@@ -76,6 +76,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 401) {
     setAuthToken();
     setRefreshToken();
+    window.dispatchEvent(new CustomEvent("profilex:auth-cleared"));
   }
   if (!response.ok) throw new ApiRequestError(url, response.status, await response.text());
   const envelope = (await response.json()) as ApiEnvelope<T>;
@@ -96,7 +97,21 @@ export const api = {
   revokeInvitation: (id: string) => request<{ deleted: boolean }>(`/invitations/${id}`, { method: "DELETE" }),
   resendInvitation: (id: string) => request<Invitation & { emailResult?: EmailResult }>(`/invitations/${id}/resend`, { method: "POST" }),
   logout: () => request<{ loggedOut: boolean }>("/auth/logout", { method: "POST", body: JSON.stringify({ refreshToken: getRefreshToken() }) }),
+  webauthnCredentials: () => request<PasskeyCredentialSummary[]>("/webauthn/credentials"),
+  removeWebauthnCredential: (id: string) => request<{ deleted: boolean }>(`/webauthn/credentials/${id}`, { method: "DELETE" }),
+  webauthnRegisterOptions: () => request<any>("/webauthn/register/options", { method: "POST", body: JSON.stringify({}) }),
+  webauthnRegisterVerify: (response: unknown) => request<{ verified: boolean; credential: PasskeyCredentialSummary }>("/webauthn/register/verify", { method: "POST", body: JSON.stringify({ response }) }),
+  webauthnLoginOptions: (email: string) => request<any>("/webauthn/login/options", { method: "POST", body: JSON.stringify({ email }) }),
+  webauthnLoginVerify: (email: string, response: unknown) => request<AuthSession>("/webauthn/login/verify", { method: "POST", body: JSON.stringify({ email, response }) }),
+  webauthnDiscoverableLoginOptions: () => request<{ challengeId: string; options: any }>("/webauthn/login/discoverable/options", { method: "POST", body: JSON.stringify({}) }),
+  webauthnDiscoverableLoginVerify: (challengeId: string, response: unknown) => request<AuthSession>("/webauthn/login/discoverable/verify", { method: "POST", body: JSON.stringify({ challengeId, response }) }),
+  webauthnUnlockOptions: () => request<any>("/webauthn/unlock/options", { method: "POST", body: JSON.stringify({}) }),
+  webauthnUnlockVerify: (response: unknown) => request<{ verified: boolean }>("/webauthn/unlock/verify", { method: "POST", body: JSON.stringify({ response }) }),
   dashboard: () => request<DashboardStats>("/dashboard"),
+  proxyTraffic: () => request<ProxyTrafficStats>("/dashboard/proxy-traffic"),
+  billing: () => request<BillingStatus>("/billing"),
+  paymentRequests: () => request<CryptoPaymentRequest[]>("/billing/payment-requests"),
+  createPaymentRequest: (requestBody: { network?: string; amountUsd?: number }) => request<CryptoPaymentRequest>("/billing/payment-requests", { method: "POST", body: JSON.stringify(requestBody) }),
   profiles: () => request<BrowserProfile[]>("/profiles"),
   createProfile: (profile: Partial<BrowserProfile>) => request<BrowserProfile>("/profiles", { method: "POST", body: JSON.stringify(profile) }),
   updateProfile: (id: string, profile: Partial<BrowserProfile>) => request<BrowserProfile>(`/profiles/${id}`, { method: "PATCH", body: JSON.stringify(profile) }),
@@ -150,13 +165,19 @@ export const api = {
     request<{ groupId: string; profileId: string }>(`/team/groups/${groupId}/profiles/${profileId}`, { method: "DELETE" }),
   removeMemberFromGroup: (groupId: string, memberId: string) =>
     request<{ groupId: string; memberId: string }>(`/team/groups/${groupId}/members/${memberId}`, { method: "DELETE" }),
+  cloudAppLockSettings: () => request<CloudAppLockSettings>("/settings/app-lock"),
+  updateCloudAppLockSettings: (settings: Partial<CloudAppLockSettings>) => request<CloudAppLockSettings>("/settings/app-lock", { method: "PATCH", body: JSON.stringify(settings) }),
   smtpSettings: () => request<SmtpSettings>("/settings/smtp"),
   updateSmtpSettings: (settings: Partial<SmtpSettings>) => request<SmtpSettings>("/settings/smtp", { method: "PATCH", body: JSON.stringify(settings) }),
   proxylineSettings: () => request<ProxylineSettings>("/settings/proxyline"),
   updateProxylineSettings: (settings: Partial<ProxylineSettings>) => request<ProxylineSettings>("/settings/proxyline", { method: "PATCH", body: JSON.stringify(settings) }),
   deleteProxylineSettings: () => request<ProxylineSettings>("/settings/proxyline", { method: "DELETE" }),
-  testSmtpSettings: (settings: Partial<SmtpSettings>) => request<{ ok: boolean }>("/settings/smtp/test", { method: "POST", body: JSON.stringify(settings) }),
+  testSmtpSettings: (settings: Partial<SmtpSettings>) => request<{ success: boolean; ok: boolean; code?: string; message?: string }>("/settings/smtp/test", { method: "POST", body: JSON.stringify(settings) }),
   logs: (filters?: { user?: string; action?: string; role?: string; date?: string }) => { const query = new URLSearchParams(Object.entries(filters ?? {}).filter(([, value]) => value) as Array<[string, string]>).toString(); return request<any[]>(`/logs${query ? `?${query}` : ""}`); },
   clearLogs: () => request<{ cleared: boolean }>("/logs", { method: "DELETE" }),
+  createBackup: () => request<any>("/recovery/backup", { method: "POST" }),
+  restoreBackup: (backup: unknown) => request<any>("/recovery/restore", { method: "POST", body: JSON.stringify(backup) }),
+  clearStaleSessions: () => request<any>("/recovery/clear-sessions", { method: "POST" }),
+  fixRunningProfiles: () => request<any>("/recovery/fix-running-profiles", { method: "POST" }),
   pythonWorkerStatus: () => request<{ ok: boolean; url: string; capabilities: string[]; error?: string }>("/worker/python/status")
 };

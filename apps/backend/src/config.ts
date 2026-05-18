@@ -32,3 +32,5 @@ export const PYTHON_WORKER_URL = process.env.PROFILEX_PYTHON_WORKER_URL ?? "http
 if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
 if (IS_PRODUCTION && !JWT_SECRET) throw new Error("JWT_SECRET is required in production");
 if (IS_PRODUCTION && !MASTER_KEY) throw new Error("PROFILEX_MASTER_KEY is required in production");
+
+export const WEBAUTHN_ALLOWED_ORIGINS = (process.env.WEBAUTHN_ALLOWED_ORIGINS ?? "http://127.0.0.1:5173,http://localhost:5173,https://app.profilex.com.ua").split(",").map((value) => value.trim()).filter(Boolean);

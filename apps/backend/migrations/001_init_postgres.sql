@@ -253,3 +253,53 @@ UPDATE profiles SET organization_id='org-default' WHERE organization_id IS NULL;
 UPDATE proxies SET organization_id='org-default' WHERE organization_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_profiles_org ON profiles(organization_id);
 CREATE INDEX IF NOT EXISTS idx_proxies_org ON proxies(organization_id);
+
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  credential_id TEXT PRIMARY KEY,
+  public_key BYTEA NOT NULL,
+  counter BIGINT NOT NULL DEFAULT 0,
+  transports TEXT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user ON webauthn_credentials(user_id);
+CREATE TABLE IF NOT EXISTS webauthn_challenges (
+  key TEXT PRIMARY KEY,
+  challenge TEXT NOT NULL,
+  rp_id TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS proxy_traffic_usage (
+  id TEXT PRIMARY KEY,
+  proxy_id TEXT NOT NULL REFERENCES proxies(id) ON DELETE CASCADE,
+  profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+  bytes_in BIGINT NOT NULL DEFAULT 0,
+  bytes_out BIGINT NOT NULL DEFAULT 0,
+  total_bytes BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_proxy_traffic_usage_created ON proxy_traffic_usage(created_at);
+CREATE INDEX IF NOT EXISTS idx_proxy_traffic_usage_proxy ON proxy_traffic_usage(proxy_id);
+CREATE TABLE IF NOT EXISTS organization_billing (
+  organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+  plan TEXT NOT NULL DEFAULT 'workspace',
+  status TEXT NOT NULL DEFAULT 'trial',
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '14 days'),
+  last_payment_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS crypto_payment_requests (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  network TEXT NOT NULL,
+  amount_usd NUMERIC(12,2) NOT NULL,
+  wallet_address TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paid_at TIMESTAMPTZ
+);

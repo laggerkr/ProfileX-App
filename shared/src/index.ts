@@ -211,6 +211,34 @@ export interface ActivityLog {
   createdAt: string;
 }
 
+export interface ProxyTrafficStats {
+  total: { bytesIn: number; bytesOut: number; totalBytes: number };
+  today: { bytesIn: number; bytesOut: number; totalBytes: number };
+  last7days: { bytesIn: number; bytesOut: number; totalBytes: number };
+  byProxy: Array<{ proxyId: string; proxyName: string; bytesIn: number; bytesOut: number; totalBytes: number }>;
+}
+
+export interface BillingStatus {
+  status: "trial" | "active" | "expired";
+  plan: string;
+  expiresAt: string;
+  daysLeft: number;
+  canLaunch: boolean;
+  paymentMethod: "crypto";
+  wallets: Array<{ network: string; address: string }>;
+  lastPaymentAt?: string;
+}
+
+export interface CryptoPaymentRequest {
+  id: string;
+  network: string;
+  amountUsd: number;
+  walletAddress: string;
+  status: "pending" | "paid" | "expired";
+  createdAt: string;
+  paidAt?: string;
+}
+
 export interface DashboardStats {
   profiles: number;
   onlineProfiles: number;
@@ -242,6 +270,7 @@ export type WorkspacePage =
   | "Logs"
   | "Automation API"
   | "Settings"
+  | "Billing"
   | "Login Page"
   | "Recovery";
 
@@ -254,8 +283,8 @@ export const roleDescriptions: Record<Role, string> = {
 };
 
 const pageAccess: Record<Role, WorkspacePage[]> = {
-  owner: ["Dashboard", "Profiles", "RDP", "Proxy Manager", "Fingerprints", "Groups", "Team / Users", "Logs", "Automation API", "Settings", "Recovery"],
-  admin: ["Dashboard", "Profiles", "RDP", "Proxy Manager", "Fingerprints", "Groups", "Team / Users", "Logs", "Automation API", "Settings", "Recovery"],
+  owner: ["Dashboard", "Profiles", "RDP", "Proxy Manager", "Fingerprints", "Groups", "Team / Users", "Logs", "Automation API", "Settings", "Billing", "Recovery"],
+  admin: ["Dashboard", "Profiles", "RDP", "Proxy Manager", "Fingerprints", "Groups", "Team / Users", "Logs", "Automation API", "Settings", "Billing", "Recovery"],
   manager: ["Dashboard", "Profiles", "RDP", "Proxy Manager", "Fingerprints", "Groups", "Team / Users", "Logs"],
   member: ["Dashboard", "Profiles"],
   client: ["Dashboard", "Profiles"]
@@ -294,3 +323,15 @@ export function canAccessRecovery(role: Role) { return role === "owner"; }
 export function canManageGroups(role: Role) { return ["owner", "admin", "manager"].includes(role); }
 export function canManageRdp(role: Role) { return ["owner", "admin", "manager"].includes(role); }
 export function canClearLogs(role: Role) { return ["owner", "admin"].includes(role); }
+
+export interface PasskeyCredentialSummary {
+  credentialId: string;
+  transports: string[];
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+export interface CloudAppLockSettings {
+  enabled: boolean;
+  updatedAt?: string;
+}

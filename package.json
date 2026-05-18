@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "predev": "node scripts/check-dev-ports.mjs && node scripts/dev-bootstrap.mjs",
-    "dev": "concurrently -k -n API,WEB,ELECTRON -c cyan,magenta,green \"npm:dev -w @profilex/backend\" \"npm:dev -w @profilex/frontend\" \"wait-on http://127.0.0.1:4387/api/health http://127.0.0.1:5173 && npm.cmd run electron:dev -w @profilex/frontend\"",
+    "dev": "concurrently -k -n API,WEB,ELECTRON -c cyan,magenta,green \"npm:dev -w @profilex/backend\" \"npm:dev -w @profilex/frontend\" \"wait-on http://127.0.0.1:4387/api/health http://localhost:5173 && npm.cmd run electron:dev -w @profilex/frontend\"",
     "dev:python-worker": "python apps/python-worker/src/main.py",
     "build": "npm run build -w @profilex/shared && npm run build -w @profilex/browser-engine && npm run build -w @profilex/backend && npm run build -w @profilex/frontend",
     "lint": "eslint . --ext .ts,.tsx",

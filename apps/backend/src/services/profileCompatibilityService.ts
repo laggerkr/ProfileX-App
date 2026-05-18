@@ -11,7 +11,8 @@ const countryDefaults: Record<string, { timezone: string; language: string }> = 
   GB: { timezone: "Europe/London", language: "en-GB" },
   NL: { timezone: "Europe/Amsterdam", language: "nl-NL" },
   FR: { timezone: "Europe/Paris", language: "fr-FR" },
-  CA: { timezone: "America/Toronto", language: "en-CA" }
+  CA: { timezone: "America/Toronto", language: "en-CA" },
+  LV: { timezone: "Europe/Riga", language: "lv-LV" }
 };
 
 const countryTimezones: Record<string, string[]> = {
@@ -23,10 +24,11 @@ const countryTimezones: Record<string, string[]> = {
   NL: ["Europe/Amsterdam"],
   FR: ["Europe/Paris"],
   CA: ["America/"],
+  LV: ["Europe/Riga"],
 };
 
 const countryLanguages: Record<string, string[]> = {
-  UA: ["uk", "ru"], PL: ["pl"], US: ["en"], GB: ["en"], DE: ["de"], FR: ["fr"], NL: ["nl"], CA: ["en", "fr"]
+  UA: ["uk", "ru"], PL: ["pl"], US: ["en"], GB: ["en"], DE: ["de"], FR: ["fr"], NL: ["nl"], CA: ["en", "fr"], LV: ["lv"]
 };
 
 export async function autoFixProfileCompatibility(db: AppDatabase, profileId: string) {
