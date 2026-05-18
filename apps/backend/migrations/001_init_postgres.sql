@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 CREATE TABLE IF NOT EXISTS rdp_connections (
   id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE DEFAULT 'org-default',
   name TEXT NOT NULL,
   host TEXT NOT NULL,
   username TEXT NOT NULL,
@@ -303,3 +304,7 @@ CREATE TABLE IF NOT EXISTS crypto_payment_requests (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   paid_at TIMESTAMPTZ
 );
+
+ALTER TABLE rdp_connections ADD COLUMN IF NOT EXISTS organization_id TEXT REFERENCES organizations(id) ON DELETE CASCADE;
+UPDATE rdp_connections SET organization_id='org-default' WHERE organization_id IS NULL;
+ALTER TABLE rdp_connections ALTER COLUMN organization_id SET NOT NULL;
